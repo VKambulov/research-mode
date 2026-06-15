@@ -97,6 +97,42 @@ def test_path_argument_rejects_state_outside_root(root: Path) -> None:
     )
 
 
+def test_id_resolution_rejects_symlink_escape(root: Path) -> None:
+    outside_root = root.parent / f"{root.name}-outside-research-root"
+    outside_root.mkdir(parents=True, exist_ok=True)
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(outside_root),
+            "--id",
+            "outside-task",
+            "--goal",
+            "Outside task must not be reachable through --id symlink",
+        )
+    )
+    symlink_task = root / "linked-task"
+    os.symlink(outside_root / "outside-task", symlink_task)
+
+    result = run(
+        "status",
+        "--root",
+        str(root),
+        "--id",
+        "linked-task",
+        "--format",
+        "json",
+        check=False,
+    )
+
+    assert_true(result.returncode != 0, "--id symlink escape should be rejected")
+    assert_in(
+        "outside research root",
+        result.stderr.lower(),
+        "--id symlink escape should fail research root containment validation",
+    )
+
+
 def test_mark_delivered_rejects_symlink_escape(root: Path) -> None:
     task_id = "delivery-symlink-escape"
     json_out(

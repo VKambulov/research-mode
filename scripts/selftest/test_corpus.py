@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import json
 import http.server
+import os
+import socket
 import socketserver
 import threading
+import urllib.request
 from pathlib import Path
+
+import research_mode_control_commands as control_commands
 
 from .helpers import assert_eq, assert_in, assert_true, json_out, run
 
@@ -31,6 +36,38 @@ class _FixtureHttpServer:
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         return f"http://127.0.0.1:{port}"
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self.httpd is not None:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+        if self.thread is not None:
+            self.thread.join(timeout=5)
+
+
+class _RedirectHttpServer:
+    def __init__(self, target_url: str):
+        self.target_url = target_url
+        self.httpd: socketserver.TCPServer | None = None
+        self.thread: threading.Thread | None = None
+
+    def __enter__(self) -> str:
+        target_url = self.target_url
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", target_url)
+                self.end_headers()
+
+            def log_message(self, format: str, *args) -> None:
+                return
+
+        self.httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+        port = int(self.httpd.server_address[1])
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        return f"http://attacker.test:{port}"
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.httpd is not None:
@@ -119,6 +156,28 @@ def test_corpus_batch_dir(root: Path) -> None:
     assert_true(all(e.get("label") == "batch" and e.get("note") == "recursive import" for e in attached["attached"]), "attach-input --dir should propagate label/note metadata to imported files")
 
 
+def test_corpus_batch_dir_skips_symlink_files(root: Path) -> None:
+    batch_dir = root / "batch-symlink-src"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    (batch_dir / "safe.txt").write_text("safe\n", encoding="utf-8")
+    outside = root.parent / "outside-corpus-secret.txt"
+    outside.write_text("secret\n", encoding="utf-8")
+    os.symlink(outside, batch_dir / "secret-link.txt")
+
+    run("create", "--root", str(root), "--id", "task-batch-symlink", "--goal", "Batch dir symlink test", "--corpus-mode", "local")
+    attached = json_out(run("attach-input", "--root", str(root), "--id", "task-batch-symlink", "--dir", str(batch_dir)))
+
+    paths = {e["path"] for e in attached["attached"]}
+    assert_eq(len(attached["attached"]), 1, "attach-input --dir should attach only regular files")
+    assert_in("input/corpus/batch-symlink-src/safe.txt", paths, "safe regular file should still be attached")
+    assert_eq(len(attached.get("skipped") or []), 1, "attach-input --dir should report skipped symlink inputs")
+    assert_in("symlink", attached["skipped"][0]["reason"], "skipped symlink should explain why it was ignored")
+    assert_true(
+        not (root / "task-batch-symlink" / "input" / "corpus" / "batch-symlink-src" / "secret-link.txt").exists(),
+        "symlink target should not be copied into corpus",
+    )
+
+
 def test_corpus_glob(root: Path) -> None:
     glob_dir = root / "glob-src"
     (glob_dir / "nested").mkdir(parents=True, exist_ok=True)
@@ -135,23 +194,159 @@ def test_corpus_glob(root: Path) -> None:
     assert_true(all(e.get("label") == "glob" and e.get("note") == "controlled import" for e in attached["attached"]), "attach-input --glob should propagate label/note metadata")
 
 
-def test_corpus_url_as_md(root: Path) -> None:
+def test_corpus_glob_skips_symlink_files(root: Path) -> None:
+    glob_dir = root / "glob-symlink-src"
+    glob_dir.mkdir(parents=True, exist_ok=True)
+    (glob_dir / "safe.md").write_text("safe\n", encoding="utf-8")
+    outside = root.parent / "outside-glob-secret.md"
+    outside.write_text("secret\n", encoding="utf-8")
+    os.symlink(outside, glob_dir / "secret-link.md")
+
+    run("create", "--root", str(root), "--id", "task-glob-symlink", "--goal", "Glob symlink test", "--corpus-mode", "local")
+    attached = json_out(run("attach-input", "--root", str(root), "--id", "task-glob-symlink", "--glob", str(glob_dir / "**" / "*.md")))
+
+    paths = {e["path"] for e in attached["attached"]}
+    assert_eq(len(attached["attached"]), 1, "attach-input --glob should attach only regular files")
+    assert_in("input/corpus/glob-symlink-src/safe.md", paths, "safe glob match should still be attached")
+    assert_eq(len(attached.get("skipped") or []), 1, "attach-input --glob should report skipped symlink inputs")
+    assert_in("symlink", attached["skipped"][0]["reason"], "skipped glob symlink should explain why it was ignored")
+
+
+def test_fetch_url_as_markdown_allows_public_https_with_fake_transport(root: Path) -> None:
+    class FakeHeaders:
+        def get_content_type(self) -> str:
+            return "text/html"
+
+        def get_content_charset(self) -> str:
+            return "utf-8"
+
+    class FakeResponse:
+        headers = FakeHeaders()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"<html><head><title>Fixture article</title></head><body><p>First paragraph.</p></body></html>"
+
+        def geturl(self) -> str:
+            return "https://example.com/article.html"
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            return FakeResponse()
+
+    original_build_opener = control_commands.urllib.request.build_opener
+    original_socket = getattr(control_commands, "socket", None)
+    original_getaddrinfo = socket.getaddrinfo
+    try:
+        control_commands.urllib.request.build_opener = lambda *handlers: FakeOpener()
+        control_commands.socket = socket
+        socket.getaddrinfo = lambda host, port, *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+        ]
+        title, markdown = control_commands._fetch_url_as_markdown(
+            "https://example.com/article.html",
+            title=None,
+            max_chars=20000,
+            timeout_seconds=1,
+        )
+    finally:
+        control_commands.urllib.request.build_opener = original_build_opener
+        socket.getaddrinfo = original_getaddrinfo
+        if original_socket is None:
+            delattr(control_commands, "socket")
+        else:
+            control_commands.socket = original_socket
+
+    assert_eq(title, "Fixture article", "fetch helper should derive title from public HTTPS HTML")
+    assert_in("Source URL: https://example.com/article.html", markdown, "fetch helper should retain source URL")
+    assert_in("First paragraph.", markdown, "fetch helper should include extracted body")
+
+
+def test_corpus_url_as_md_rejects_loopback_http(root: Path) -> None:
     url_html = root / "url-source.html"
     url_html.write_text(
-        '<html><head><title>Fixture article</title></head><body><h1>Fixture article</h1><p>First paragraph.</p><p>Second paragraph.</p></body></html>',
+        '<html><head><title>Fixture article</title></head><body><p>Local paragraph.</p></body></html>',
         encoding="utf-8",
     )
-    run("create", "--root", str(root), "--id", "task-url-md", "--goal", "Attach URL as markdown", "--corpus-mode", "local")
+    run("create", "--root", str(root), "--id", "task-url-loopback-reject", "--goal", "Reject loopback URL", "--corpus-mode", "local")
     with _FixtureHttpServer(root) as base_url:
-        url = f"{base_url}/url-source.html"
-        attached = json_out(run("attach-url-as-md", "--root", str(root), "--id", "task-url-md", "--url", url, "--label", "url", "--note", "offline fixture"))
-    assert_eq(attached["corpus_mode"], "local", "attach-url-as-md should preserve corpus mode")
-    assert_true(attached["path"].endswith("fixture-article.md"), "attach-url-as-md should generate markdown path from fetched title")
-    text = (root / "task-url-md" / attached["path"]).read_text(encoding="utf-8")
-    assert_in("Source URL:", text, "attach-url-as-md should materialize fetched markdown snapshot")
-    assert_in("First paragraph.", text, "attach-url-as-md should materialize fetched markdown snapshot")
-    lease = json_out(run("begin", "--root", str(root), "--id", "task-url-md"))
-    assert_true(any(e.get("path") == attached["path"] and e.get("source_url") == url for e in lease["corpus"]["entries"]), "begin work order should expose attach-url-as-md corpus entry with source_url")
+        result = run(
+            "attach-url-as-md",
+            "--root",
+            str(root),
+            "--id",
+            "task-url-loopback-reject",
+            "--url",
+            f"{base_url}/url-source.html",
+            check=False,
+        )
+
+    assert_eq(result.returncode, 2, "attach-url-as-md should reject loopback HTTP URLs")
+    assert_in("blocked local or private host", result.stderr.lower(), "loopback rejection should explain URL safety policy")
+
+
+def test_fetch_url_as_markdown_rejects_redirect_to_loopback(root: Path) -> None:
+    internal = root / "internal.html"
+    internal.write_text(
+        "<html><head><title>Internal</title></head><body>loopback secret</body></html>",
+        encoding="utf-8",
+    )
+
+    original_getaddrinfo = socket.getaddrinfo
+    original_opener = urllib.request._opener
+    attacker_lookup_count = 0
+
+    def patched_getaddrinfo(host: str, port: int, *args, **kwargs):
+        nonlocal attacker_lookup_count
+        if host == "attacker.test":
+            attacker_lookup_count += 1
+            if attacker_lookup_count == 1:
+                return [
+                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+                ]
+            return original_getaddrinfo("127.0.0.1", port, *args, **kwargs)
+        return original_getaddrinfo(host, port, *args, **kwargs)
+
+    try:
+        original_build_opener = control_commands.urllib.request.build_opener
+
+        def build_test_opener(*handlers):
+            return original_build_opener(
+                control_commands.urllib.request.ProxyHandler({}),
+                *handlers,
+            )
+
+        control_commands.urllib.request.build_opener = build_test_opener
+        urllib.request.install_opener(
+            urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        )
+        socket.getaddrinfo = patched_getaddrinfo
+        with _FixtureHttpServer(root) as internal_base_url:
+            with _RedirectHttpServer(f"{internal_base_url}/internal.html") as redirect_url:
+                try:
+                    control_commands._fetch_url_as_markdown(
+                        f"{redirect_url}/start",
+                        title=None,
+                        max_chars=20000,
+                        timeout_seconds=2,
+                    )
+                except control_commands.ValidationError as exc:
+                    assert_in(
+                        "blocked local or private host",
+                        str(exc).lower(),
+                        "redirect to loopback should explain URL safety policy",
+                    )
+                else:
+                    raise AssertionError("redirect to loopback should be rejected")
+    finally:
+        socket.getaddrinfo = original_getaddrinfo
+        control_commands.urllib.request.build_opener = original_build_opener
+        urllib.request.install_opener(original_opener)
 
 
 def test_corpus_url_as_md_rejects_local_file_scheme(root: Path) -> None:

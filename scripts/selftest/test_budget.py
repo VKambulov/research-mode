@@ -30,10 +30,14 @@ def test_budget_source_hard_limit(root: Path) -> None:
         encoding="utf-8",
     )
     fin2 = json_out(run("finish", "--root", str(budget_root), "--id", "budget-src", "--run-id", lease2["run_id"], "--result-file", str(res2)))
-    assert_eq(fin2["status"], "complete", "should complete when max_sources (3) is reached")
+    assert_eq(fin2["status"], "awaiting_review", "budget auto-completion should enter review gate when max_sources is reached")
     assert_eq(fin2["normalized_reason"], "completed:budget", "completion reason should be budget")
+    assert_true(fin2["review_gated"], "budget auto-completion should be review-gated")
     assert_eq(fin2["budget_phase"], "hard_limit", "phase should be hard_limit at 100%")
     assert_eq(fin2["total_sources"], 3, "should have 3 sources total")
+    state = json.loads((budget_root / "budget-src" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["delivery"]["review_ready"], True, "budget auto-completion should mark report review-ready")
+    assert_eq(state["delivery"]["ready"], False, "budget auto-completion must not mark report delivery-ready")
 
     summary = json_out(run("summary", "--root", str(budget_root), "--id", "budget-src", "--format", "json"))
     assert_in("budget_phase", summary, "summary json should expose budget_phase")
@@ -109,8 +113,9 @@ def test_budget_runtime_hard_limit(root: Path) -> None:
         encoding="utf-8",
     )
     fin = json_out(run("finish", "--root", str(budget_root), "--id", "budget-rt", "--run-id", lease["run_id"], "--result-file", str(res)))
-    assert_eq(fin["status"], "complete", "should complete when max_runtime_min is exceeded")
+    assert_eq(fin["status"], "awaiting_review", "runtime budget auto-completion should enter review gate")
     assert_eq(fin["normalized_reason"], "completed:budget", "completion reason should be budget")
+    assert_true(fin["review_gated"], "runtime budget auto-completion should be review-gated")
     assert_eq(fin["budget_phase"], "hard_limit", "phase should be hard_limit when runtime exceeded")
     assert_true(fin.get("reached_max_runtime"), "finish response should signal reached_max_runtime")
     assert_true(fin.get("total_runtime_min") is not None, "finish response should include total_runtime_min")

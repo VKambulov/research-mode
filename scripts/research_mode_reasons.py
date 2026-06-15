@@ -89,6 +89,11 @@ def reason_for_finish(
             return "completed:topic_saturated"
         return f"completed:{trigger}"
     if next_status == "awaiting_review":
+        trigger = str(completion_triggered or "")
+        if trigger == "budget":
+            return "completed:budget"
+        if trigger == "topic_saturated":
+            return "completed:topic_saturated"
         return "awaiting_review:passed-validation"
     return "continued:iteration-complete"
 

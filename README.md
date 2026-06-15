@@ -451,7 +451,8 @@ python3 scripts/research_mode.py attach-pdf --id <research-id> --file ./paper.pd
 
 Images attached through `attach-input` are marked with `content_hint=image` so
 future worker turns can treat them as visual inputs.
-`attach-url-as-md` accepts only `http://` and `https://` URLs.
+`attach-url-as-md` accepts only `http://` and `https://` URLs and blocks local
+or private network hosts, including redirect targets.
 
 #### Runtime Preparation
 
@@ -1089,7 +1090,8 @@ python3 scripts/research_mode.py attach-pdf --id <research-id> --file ./paper.pd
 Изображения, прикреплённые через `attach-input`, помечаются как
 `content_hint=image`, чтобы будущие итерации могли воспринимать их как
 визуальные входные материалы.
-`attach-url-as-md` принимает только URL с `http://` и `https://`.
+`attach-url-as-md` принимает только URL с `http://` и `https://` и блокирует
+локальные или приватные сетевые хосты, включая redirect targets.
 
 #### Подготовка локального окружения
 

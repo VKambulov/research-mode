@@ -64,7 +64,7 @@ class ResearchTask:
         if not research_id:
             raise ValidationError("Either --id or --path is required")
         safe_id = validate_research_id(research_id)
-        return cls((root / safe_id).resolve())
+        return cls(resolve_under_root(root, safe_id, label="task id"))
 
     def exists(self) -> bool:
         return self.state_path.exists()

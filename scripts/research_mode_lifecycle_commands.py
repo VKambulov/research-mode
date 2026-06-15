@@ -648,7 +648,14 @@ def finish_iteration(args: argparse.Namespace) -> int:
                     state["artifacts"]["final_report_path"] = saved_report_path
                     state.setdefault("finalization", finalization_defaults())["status"] = "passed"
                     state["delivery"]["primary_file"] = saved_report_path
-                    state["delivery"]["ready"] = True
+                    state["delivery"]["review_ready"] = True
+                    state["delivery"]["ready"] = False
+                    next_status = "awaiting_review"
+                    state["status"] = "awaiting_review"
+                    review = state.setdefault("review", {})
+                    review["review_gated"] = True
+                    if review.get("status") == "changes_requested":
+                        review["status"] = "pending"
             else:
                 next_status = "idle"
                 state["artifacts"]["final_report_path"] = None

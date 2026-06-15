@@ -206,7 +206,8 @@ Checks:
 - source file exists;
 - directory or glob matches the expected files;
 - PDF path is local and readable;
-- URL uses `http://` or `https://` and is reachable within the timeout;
+- URL uses `http://` or `https://`, is not a local/private network host, does
+  not redirect to one, and is reachable within the timeout;
 - attached material does not include secrets that should not enter the task
   corpus.
 
@@ -513,7 +514,9 @@ python3 scripts/research_mode.py summary --id <research-id> --format text
 - исходный файл существует;
 - директория или glob действительно находят ожидаемые файлы;
 - PDF локальный и читаемый;
-- URL использует `http://` или `https://` и доступен в пределах timeout;
+- URL использует `http://` или `https://`, не указывает на локальный или
+  приватный сетевой хост, не перенаправляет на него и доступен в пределах
+  timeout;
 - прикрепляемый материал не содержит секреты, которые не должны попадать в
   корпус задачи.
 

@@ -439,10 +439,14 @@ def test_saturation(root: Path) -> None:
         encoding="utf-8",
     )
     fin_f2 = json_out(run("finish", "--root", str(root), "--id", "task-f", "--run-id", lease_f2["run_id"], "--result-file", str(res_f2)))
-    assert_eq(fin_f2["status"], "complete", "second low-yield synth pass should auto-complete")
+    assert_eq(fin_f2["status"], "awaiting_review", "topic saturation auto-completion should enter review gate")
     assert_eq(fin_f2["topic_saturated"], True, "second low-yield synth pass should mark saturation")
     assert_true(bool(fin_f2["final_report_path"]), "saturation completion should render final report")
     assert_eq(fin_f2["normalized_reason"], "completed:topic_saturated", "saturation completion should expose normalized terminal reason")
+    assert_true(fin_f2["review_gated"], "topic saturation auto-completion should be review-gated")
+    state_f = json.loads((root / "task-f" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state_f["delivery"]["review_ready"], True, "topic saturation should mark report review-ready")
+    assert_eq(state_f["delivery"]["ready"], False, "topic saturation must not mark report delivery-ready")
 
     summary_f = json_out(run("summary", "--root", str(root), "--id", "task-f", "--format", "json"))
     assert_eq(summary_f["saturation"]["consecutive_low_yield"], 2, "summary should expose low-yield streak")
@@ -495,6 +499,7 @@ def test_begin_on_terminal_states(root: Path) -> None:
         encoding="utf-8",
     )
     run("finish", "--root", str(root), "--id", "task-term-complete", "--run-id", lease2["run_id"], "--result-file", str(res2))
+    json_out(run("approve", "--root", str(root), "--id", "task-term-complete"))
 
     begin_complete = json_out(run("begin", "--root", str(root), "--id", "task-term-complete"))
     assert_eq(begin_complete["status"], "complete", "begin should short-circuit on completed tasks")

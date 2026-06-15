@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import glob
 import html
+import ipaddress
 import json
 import re
 import shutil
+import socket
 import urllib.request
 from urllib.parse import urlparse
 from pathlib import Path
@@ -34,6 +36,7 @@ from research_mode_task import ResearchTask, StateManager
 from research_mode_utils import (
     NO_ACTIVE_LEASE,
     ValidationError,
+    is_relative_to,
     json_dump,
     resolve_under_task,
     slugify,
@@ -82,6 +85,59 @@ def _html_to_text(payload: str) -> tuple[str | None, str]:
     return title, text.strip()
 
 
+def _is_blocked_url_ip(ip_text: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return True
+    return any(
+        (
+            ip.is_loopback,
+            ip.is_private,
+            ip.is_link_local,
+            ip.is_reserved,
+            ip.is_multicast,
+            ip.is_unspecified,
+        )
+    )
+
+
+def _validate_fetchable_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValidationError(
+            "attach-url-as-md only supports http:// and https:// URLs"
+        )
+    host = (parsed.hostname or "").strip().rstrip(".")
+    if not host:
+        raise ValidationError("attach-url-as-md requires a URL host")
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        raise ValidationError(f"Blocked local or private host in URL: {host}")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            resolved = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise ValidationError(f"Failed to resolve URL host: {host} ({exc})") from exc
+        for item in resolved:
+            sockaddr = item[4]
+            ip_text = str(sockaddr[0])
+            if _is_blocked_url_ip(ip_text):
+                raise ValidationError(f"Blocked local or private host in URL: {host}")
+    else:
+        if _is_blocked_url_ip(host):
+            raise ValidationError(f"Blocked local or private host in URL: {host}")
+
+
+class _ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_fetchable_url(str(newurl))
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch_url_as_markdown(
     url: str,
     *,
@@ -89,20 +145,17 @@ def _fetch_url_as_markdown(
     max_chars: int,
     timeout_seconds: int,
 ) -> tuple[str, str]:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValidationError(
-            "attach-url-as-md only supports http:// and https:// URLs"
-        )
+    _validate_fetchable_url(url)
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "OpenClaw-ResearchMode/1.2"},
     )
     try:
+        opener = urllib.request.build_opener(_ValidatedRedirectHandler)
         # Scheme is restricted to http/https above.
-        with urllib.request.urlopen(  # nosec B310
-            request, timeout=timeout_seconds
-        ) as response:
+        with opener.open(request, timeout=timeout_seconds) as response:  # nosec B310
+            final_url = str(response.geturl() or url)
+            _validate_fetchable_url(final_url)
             raw_bytes = response.read()
             content_type = response.headers.get_content_type()
             charset = response.headers.get_content_charset() or "utf-8"
@@ -617,6 +670,7 @@ def attach_input_command(args: argparse.Namespace) -> int:
     label = str(getattr(args, "label", "") or "").strip() or None
     note = str(getattr(args, "note", "") or "").strip() or None
     copied: list[dict[str, object]] = []
+    skipped: list[dict[str, str]] = []
     manifest_entries = read_corpus_manifest(task)
     file_inputs = list(getattr(args, "file", []) or [])
     dir_inputs = list(getattr(args, "dir", []) or [])
@@ -647,10 +701,27 @@ def attach_input_command(args: argparse.Namespace) -> int:
         if not src_dir.exists() or not src_dir.is_dir():
             raise ValidationError(f"Input directory not found: {src_dir}")
         dest_dir = unique_copy_destination(task.corpus_dir, src_dir.name)
-        files_in_dir = sorted(path for path in src_dir.rglob("*") if path.is_file())
+        candidates = sorted(src_dir.rglob("*"))
+        files_in_dir = [path for path in candidates if path.is_file()]
         if not files_in_dir:
             raise ValidationError(f"Input directory has no files: {src_dir}")
         for src in files_in_dir:
+            if src.is_symlink():
+                skipped.append(
+                    {
+                        "source_path": str(src),
+                        "reason": "symlink input skipped",
+                    }
+                )
+                continue
+            if not is_relative_to(src.resolve(), src_dir):
+                skipped.append(
+                    {
+                        "source_path": str(src),
+                        "reason": "resolved path outside input directory skipped",
+                    }
+                )
+                continue
             rel = src.relative_to(src_dir)
             dest = dest_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -668,7 +739,7 @@ def attach_input_command(args: argparse.Namespace) -> int:
     for raw in glob_inputs:
         pattern, anchor = _resolve_glob_pattern(raw)
         matched_files = sorted(
-            Path(item).resolve()
+            Path(item)
             for item in glob.glob(pattern, recursive=True)
             if Path(item).exists() and Path(item).is_file()
         )
@@ -677,15 +748,32 @@ def attach_input_command(args: argparse.Namespace) -> int:
         dest_root_name = anchor.name or "glob-import"
         dest_root = unique_copy_destination(task.corpus_dir, dest_root_name)
         for src in matched_files:
+            if src.is_symlink():
+                skipped.append(
+                    {
+                        "source_path": str(src),
+                        "reason": "symlink input skipped",
+                    }
+                )
+                continue
+            resolved_src = src.resolve()
+            if not is_relative_to(resolved_src, anchor):
+                skipped.append(
+                    {
+                        "source_path": str(src),
+                        "reason": "resolved path outside input glob anchor skipped",
+                    }
+                )
+                continue
             try:
-                rel = src.relative_to(anchor)
+                rel = resolved_src.relative_to(anchor)
             except ValueError:
-                rel = Path(src.name)
+                rel = Path(resolved_src.name)
             dest = dest_root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.exists():
                 dest = unique_copy_destination(dest.parent, dest.name)
-            shutil.copy2(src, dest)
+            shutil.copy2(resolved_src, dest)
             entry = build_corpus_entry(
                 task,
                 dest,
@@ -703,6 +791,7 @@ def attach_input_command(args: argparse.Namespace) -> int:
         attached=copied,
         corpus_mode_override=getattr(args, "corpus_mode", None),
     )
+    payload["skipped"] = skipped
     json_dump(payload)
     return 0
 
