@@ -183,10 +183,11 @@ Do not install dangerous or suspicious packages without checking their source, n
 
 ## Search stack defaults
 
-- For **RU / regional / local-business / SERP-harvesting** research, prefer **Yandex-first discovery** over Perplexity-first synthesis.
-- Use Yandex to gather candidate sites/resources/lists, then follow direct sources with whatever tools fit the case.
-- Use **Perplexity later** for synthesis, broader context, or international cross-checking.
+- For **RU / regional / local-business / SERP-harvesting** research, prefer regional/local search or SERP tools before synthesis-first search.
+- Use discovery tools to gather candidate sites/resources/lists, then follow direct sources with whatever tools fit the case.
+- Use synthesis-first search later for broader context, summarization, or international cross-checking.
 - When the task is local and a city/region is known, include it explicitly in the query rather than relying only on abstract intent.
+- Write user-facing summaries and final deliverables in the same language as the user's goal/instructions unless the user asks for another language.
 
 ## User updates
 

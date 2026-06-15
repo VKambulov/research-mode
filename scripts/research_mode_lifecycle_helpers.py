@@ -45,8 +45,6 @@ def _looks_like_ru_local_research(state: dict[str, Any]) -> bool:
         "росси",
         "рф",
         "рунет",
-        "yandex",
-        "яндекс",
         "каменск",
         "каменск-шахтин",
         "ростов",
@@ -114,15 +112,16 @@ def _looks_like_ru_local_research(state: dict[str, Any]) -> bool:
 
 def _build_search_routing_guidance(state: dict[str, Any]) -> list[str]:
     guidance = [
+        "Write user-facing summaries and final deliverables in the same language as the user's goal/instructions unless the user asks for another language.",
         "For discovery-heavy research, prefer tools that expose raw source lists / SERPs before relying on synthesis-first search.",
-        "Use Perplexity-style synthesis after you already have candidate resources, or when the topic is clearly global/international rather than RU-local.",
+        "Use synthesis-first search after you already have candidate resources, or when the topic is clearly global/international rather than local/regional.",
     ]
     if _looks_like_ru_local_research(state):
         guidance.extend(
             [
-                "This looks like RU/local/regional research: prefer Yandex search as the first-pass discovery tool, then inspect direct sources with the most appropriate follow-up tools for the case.",
-                "For local business / address / contact / company discovery, use Yandex SERP first to gather candidate resources before leaning on Perplexity summaries.",
-                "When a city or region is known, include it directly in the query text and use Yandex region-aware workflows so the search is geographically anchored.",
+                "This looks like RU/local/regional research: prefer regional or local search tools as the first-pass discovery path, then inspect direct sources with the most appropriate follow-up tools for the case.",
+                "For local business / address / contact / company discovery, use source-list or SERP-style discovery first to gather candidate resources before leaning on synthesis-first summaries.",
+                "When a city or region is known, include it directly in the query text and use region-aware search options when available so the search is geographically anchored.",
             ]
         )
     return guidance

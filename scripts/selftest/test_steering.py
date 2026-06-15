@@ -1,4 +1,4 @@
-"""Working-memory mutation, completion validation, deliverable checks, Yandex/RU guidance."""
+"""Working-memory mutation, completion validation, deliverable checks, routing guidance."""
 from __future__ import annotations
 
 import json
@@ -104,12 +104,16 @@ def test_ru_local_guidance(root: Path) -> None:
     assert_eq(ru_local["status"], "created", "ru-local task should be created")
     lease = json_out(run("begin", "--root", str(ru_root), "--id", "ru-local-1"))
     assert_true(
-        any("yandex search as the first-pass discovery tool" in item.lower() for item in lease["execution_guidance"]),
-        "RU/local work order should bias toward Yandex-first discovery",
+        any("regional or local search tools" in item.lower() for item in lease["execution_guidance"]),
+        "RU/local work order should bias toward regional/local discovery",
     )
     assert_true(
-        any("perplexity-style synthesis" in item.lower() or ("perplexity" in item.lower() and "candidate resources" in item.lower()) for item in lease["execution_guidance"]),
-        "RU/local work order should push Perplexity into secondary synthesis role",
+        any("synthesis-first" in item.lower() and "candidate resources" in item.lower() for item in lease["execution_guidance"]),
+        "RU/local work order should push synthesis-first search into secondary synthesis role",
+    )
+    assert_true(
+        any("same language" in item.lower() for item in lease["execution_guidance"]),
+        "work order should tell workers to answer in the user's language",
     )
     run("fail", "--root", str(ru_root), "--id", "ru-local-1", "--run-id", lease["run_id"], "--error", "cleanup")
 

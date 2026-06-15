@@ -513,7 +513,8 @@ def render_worker_prompt_text(
         Rules:
         - One iteration only. No inner loops.
         - Prefer 2-5 strong sources over noisy breadth.
-        - Prefer list-producing discovery tools before synthesis-first search; if execution_guidance marks the task as RU/local/regional, treat Yandex-first discovery as the default and use Perplexity mainly for later synthesis / global context, while leaving other follow-up tools to case-by-case judgment.
+        - Write user-facing summaries and final deliverables in the same language as the user's goal/instructions unless the user asks for another language.
+        - Prefer list-producing discovery tools before synthesis-first search; if execution_guidance marks the task as RU/local/regional, treat regional/local discovery as the default and use synthesis-first search mainly for later synthesis / global context, while leaving other follow-up tools to case-by-case judgment.
         - Record honest no-progress iterations with meaningful_progress=false.
         - Prefer the simplest reproducible code path that helps; do not overbuild mini-products.
         - If code was used for a meaningful conclusion, save the relevant script/output and list it in analysis_artifacts.
