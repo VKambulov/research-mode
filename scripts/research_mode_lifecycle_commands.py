@@ -1,0 +1,934 @@
+from __future__ import annotations
+
+import argparse
+import uuid
+from pathlib import Path
+from typing import Any
+
+from research_mode_lifecycle_helpers import (
+    build_revision_diff,
+    compose_failure_update_text,
+    compose_finish_update_text,
+    compute_low_yield,
+    make_work_order,
+    render_default_final_report,
+    should_notify,
+    stale_lock,
+    validate_candidate_final,
+    validate_completion,
+)
+from research_mode_surfaces import compute_budget_phase
+from research_mode_payloads import (
+    finalization_defaults,
+    normalize_analysis_artifacts,
+    normalize_database_artifacts,
+    normalize_database_summary,
+    normalize_findings,
+    normalize_finalization_trace,
+    normalize_sources,
+    normalize_string_list,
+    normalize_vision_artifacts,
+    normalize_vision_summary,
+)
+from research_mode_reasons import (
+    reason_for_begin_short_circuit,
+    reason_for_failure,
+    reason_for_finish,
+    set_history_reason,
+)
+from research_mode_reporting import append_run_log, refresh_task_playbook
+from research_mode_runtime import (
+    clear_bound_job,
+    remove_cron_job,
+    snapshot_job_binding,
+    suspend_bound_job,
+)
+from research_mode_task import ResearchTask, StateManager
+from research_mode_utils import (
+    NO_ACTIVE_LEASE,
+    ValidationError,
+    atomic_text_write,
+    json_dump,
+    minutes_since,
+    parse_ts,
+    read_json,
+    utc_now,
+)
+
+FINAL_STATUSES = {"complete", "failed", "cancelled"}
+REVIEW_WAIT_STATUSES = {"awaiting_review"}
+PHASES = {"search", "analyze", "synthesize", "finalize"}
+
+
+def _run_v13_finalization_validation(
+    task: ResearchTask,
+    state: dict[str, Any],
+    payload: dict[str, Any],
+    report_markdown: str,
+) -> dict[str, Any]:
+    finalization = state.get("finalization") or {}
+    max_attempts = int(finalization.get("max_attempts") or 3)
+    current_attempts = int(finalization.get("attempt_count") or 0)
+
+    validation_result = validate_candidate_final(
+        task, state, payload, report_markdown=report_markdown
+    )
+
+    if validation_result["passed"]:
+        return {
+            **validation_result,
+            "max_attempts": max_attempts,
+            "attempt_count": current_attempts + 1,
+        }
+
+    if current_attempts + 1 >= max_attempts:
+        return {
+            **validation_result,
+            "max_attempts": max_attempts,
+            "attempt_count": current_attempts + 1,
+            "status": "needs_intervention",
+        }
+
+    return {
+        **validation_result,
+        "max_attempts": max_attempts,
+        "attempt_count": current_attempts + 1,
+        "status": "rework",
+    }
+
+
+def begin_iteration(args: argparse.Namespace) -> int:
+    task = ResearchTask.from_args(
+        Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
+    )
+    manager = StateManager(task)
+    recovery_result = None
+    with manager.editor() as state:
+        now = utc_now()
+        status = state.get("status")
+
+        if state.get("control", {}).get("stop_requested") and status != "running":
+            state["status"] = "cancelled"
+            state["updated_at"] = now
+            state["history"]["last_transition"] = "cancelled-before-begin"
+            normalized_reason = set_history_reason(state, "stopped:user")
+            json_dump(
+                {
+                    "status": "cancelled",
+                    "reason": "stop_requested",
+                    "normalized_reason": normalized_reason,
+                }
+            )
+            return 0
+
+        if state.get("control", {}).get("stop_requested") and status == "running":
+            lock = state.get("lock") or {}
+            if lock.get("status") == "held" and stale_lock(state):
+                stale_run_id = lock.get("run_id")
+                stale_iteration_index = int(lock.get("iteration_index") or 0)
+                state["status"] = "cancelled"
+                state["control"]["stop_requested"] = False
+                state["updated_at"] = now
+                state["lock"].update(
+                    {
+                        "status": "free",
+                        "run_id": None,
+                        "lease_token": NO_ACTIVE_LEASE,
+                        "started_at": None,
+                        "iteration_index": None,
+                    }
+                )
+                state.setdefault("artifacts", {})["abandoned_run_id"] = stale_run_id
+                state.setdefault("artifacts", {})["abandoned_at"] = now
+                state.setdefault("history", {}).setdefault("audit_trail", []).append(
+                    {
+                        "at": now,
+                        "event": "run_abandoned_on_stop",
+                        "run_id": stale_run_id,
+                        "iteration": stale_iteration_index,
+                        "reason": "stale_lock_on_stop",
+                    }
+                )
+                state["history"]["last_transition"] = "cancelled:stale-lock"
+                normalized_reason = set_history_reason(state, "stopped:stale_lock")
+                json_dump(
+                    {
+                        "status": "cancelled",
+                        "reason": "stop_requested_with_stale_lock",
+                        "normalized_reason": normalized_reason,
+                        "abandoned_run_id": stale_run_id,
+                    }
+                )
+                return 0
+            state["status"] = "cancelled"
+            state["control"]["stop_requested"] = False
+            state["updated_at"] = now
+            state["lock"].update(
+                {
+                    "status": "free",
+                    "run_id": None,
+                    "lease_token": NO_ACTIVE_LEASE,
+                    "started_at": None,
+                    "iteration_index": None,
+                }
+            )
+            state["history"]["last_transition"] = "cancelled:user"
+            normalized_reason = set_history_reason(state, "stopped:user")
+            json_dump(
+                {
+                    "status": "cancelled",
+                    "reason": "stop_requested",
+                    "normalized_reason": normalized_reason,
+                }
+            )
+            return 0
+
+        if status == "paused":
+            json_dump(
+                {
+                    "status": "paused",
+                    "normalized_reason": reason_for_begin_short_circuit(
+                        status="paused"
+                    ),
+                }
+            )
+            return 0
+
+        if status in REVIEW_WAIT_STATUSES:
+            review = state.get("review") or {}
+            json_dump(
+                {
+                    "status": status,
+                    "review_gated": True,
+                    "wait_semantic": "awaiting_user_review",
+                    "review_status": review.get("status") or "pending",
+                    "revision_count": int(review.get("revision_count") or 0),
+                    "last_feedback": review.get("last_feedback"),
+                    "normalized_reason": reason_for_begin_short_circuit(status=status),
+                }
+            )
+            return 0
+
+        if status in FINAL_STATUSES:
+            json_dump(
+                {
+                    "status": status,
+                    "normalized_reason": reason_for_begin_short_circuit(
+                        status=status,
+                        last_terminal_reason=(state.get("history") or {}).get(
+                            "last_terminal_reason"
+                        ),
+                    ),
+                }
+            )
+            return 0
+
+        if status == "running":
+            if not stale_lock(state):
+                age_min = minutes_since(state["lock"].get("started_at"))
+                json_dump(
+                    {
+                        "status": "skipped",
+                        "reason": "lock-active",
+                        "normalized_reason": "deferred:lock-active",
+                        "active_run_id": state["lock"].get("run_id"),
+                        "age_min": None if age_min is None else round(age_min, 2),
+                    }
+                )
+                return 0
+            stale_run_id = state["lock"].get("run_id")
+            stale_iteration_index = int(state["lock"].get("iteration_index") or 0)
+            stale_phase = state.get("phase") or "search"
+            recovery_result = None
+            state["lock"]["recovered_count"] = (
+                int(state["lock"].get("recovered_count") or 0) + 1
+            )
+            state["lock"]["last_recovered_from_run"] = stale_run_id
+
+            recovery_result = task.salvage_partial_progress(
+                stale_run_id=stale_run_id,
+                stale_iteration_index=stale_iteration_index,
+                stale_phase=stale_phase,
+            )
+            if recovery_result:
+                state.setdefault("artifacts", {})["last_recovery_note_path"] = (
+                    recovery_result.get("recovery_note_path")
+                )
+                state.setdefault("artifacts", {})["last_recovery_run_id"] = (
+                    recovery_result.get("stale_run_id")
+                )
+                state.setdefault("artifacts", {})["last_recovery_result_file"] = (
+                    recovery_result.get("result_file")
+                )
+                state.setdefault("artifacts", {})["last_recovery_at"] = (
+                    recovery_result.get("recovered_at")
+                )
+                state.setdefault("history", {}).setdefault("audit_trail", []).append(
+                    {
+                        "at": now,
+                        "event": "recovery_note_created",
+                        "run_id": stale_run_id,
+                        "iteration": stale_iteration_index,
+                        "note_path": recovery_result.get("recovery_note_path"),
+                    }
+                )
+            else:
+                state.setdefault("artifacts", {})["last_recovery_note_path"] = None
+                state.setdefault("artifacts", {})["abandoned_run_id"] = stale_run_id
+                state.setdefault("artifacts", {})["abandoned_at"] = now
+                state.setdefault("history", {}).setdefault("audit_trail", []).append(
+                    {
+                        "at": now,
+                        "event": "run_abandoned",
+                        "run_id": stale_run_id,
+                        "iteration": stale_iteration_index,
+                        "reason": "no_result_file",
+                    }
+                )
+
+        run_id = uuid.uuid4().hex[:12]
+        lease_token = uuid.uuid4().hex
+        iteration_index = int(state["progress"].get("iteration_count") or 0) + 1
+        state["status"] = "running"
+        state["updated_at"] = now
+        state["progress"]["last_attempt_at"] = now
+        state["lock"].update(
+            {
+                "status": "held",
+                "run_id": run_id,
+                "lease_token": lease_token,
+                "started_at": now,
+                "iteration_index": iteration_index,
+            }
+        )
+        state["history"]["last_transition"] = "begin"
+        work_order = make_work_order(state, task)
+        if recovery_result:
+            work_order["recovery_note"] = {
+                "path": recovery_result.get("recovery_note_path"),
+                "exists": recovery_result.get("recovery_note_exists"),
+                "run_id": recovery_result.get("stale_run_id"),
+                "iteration": recovery_result.get("stale_iteration_index"),
+            }
+
+    json_dump(work_order)
+    return 0
+
+
+def load_result_payload(path: Path) -> dict[str, Any]:
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        raise ValidationError("result payload must be a JSON object")
+    summary = str(payload.get("summary") or "").strip()
+    if not summary:
+        raise ValidationError("result payload requires non-empty 'summary'")
+    phase = str(payload.get("phase") or "search")
+    if phase not in PHASES:
+        raise ValidationError(f"Unsupported phase: {phase}")
+    notify = str(payload.get("notify_recommendation") or "auto")
+    if notify not in {"auto", "silent", "milestone", "blocker", "final"}:
+        raise ValidationError(f"Unsupported notify_recommendation: {notify}")
+    return {
+        "summary": summary,
+        "next_angle": str(payload.get("next_angle") or "").strip() or None,
+        "meaningful_progress": bool(payload.get("meaningful_progress", True)),
+        "code_used": bool(payload.get("code_used", False)),
+        "phase": phase,
+        "open_questions": normalize_string_list(payload.get("open_questions") or []),
+        "sources": normalize_sources(payload.get("sources") or []),
+        "findings": normalize_findings(payload.get("findings") or []),
+        "analysis_artifacts": normalize_analysis_artifacts(
+            payload.get("analysis_artifacts") or []
+        ),
+        "packages_used": normalize_string_list(payload.get("packages_used") or []),
+        "database_used": bool(payload.get("database_used", False)),
+        "database_artifacts": normalize_database_artifacts(
+            payload.get("database_artifacts") or []
+        ),
+        "database_summary": normalize_database_summary(payload.get("database_summary")),
+        "vision_used": bool(payload.get("vision_used", False)),
+        "vision_artifacts": normalize_vision_artifacts(
+            payload.get("vision_artifacts") or []
+        ),
+        "vision_summary": normalize_vision_summary(payload.get("vision_summary")),
+        "notify_recommendation": notify,
+        "should_complete": bool(payload.get("should_complete", False)),
+        "final_report_markdown": payload.get("final_report_markdown"),
+        "finalization": normalize_finalization_trace(payload.get("finalization")),
+    }
+
+
+def finish_iteration(args: argparse.Namespace) -> int:
+    task = ResearchTask.from_args(
+        Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
+    )
+    payload = load_result_payload(Path(args.result_file).expanduser().resolve())
+    manager = StateManager(task)
+    remove_job_id: str | None = None
+    completion_validation: dict[str, Any] | None = None
+    budget_phase_info: dict[str, Any] = {}
+    saturation: dict[str, Any] = {}
+    total_sources: int = 0
+    reached_max_runtime: bool = False
+    total_runtime_min: float | None = None
+    next_status: str = "idle"
+    pre_edit_revision_snap = task.read_state().get("revision_snapshot") or {}
+    normalized_reason: str | None = None
+    notify_user: bool = False
+    append_metrics: dict[str, int] = {}
+    saved_report_path: str | None = None
+    finalization_validation: dict[str, Any] | None = None
+    now: str = ""
+    iteration_index: int = 0
+
+    with manager.editor() as state:
+        lock = state.get("lock") or {}
+        if state.get("status") != "running" or lock.get("status") != "held":
+            raise ValidationError("No active run to finish")
+        if lock.get("run_id") != args.run_id:
+            raise ValidationError(
+                f"Active run id mismatch: expected {lock.get('run_id')}, got {args.run_id}"
+            )
+
+        now = utc_now()
+        iteration_index = int(
+            lock.get("iteration_index")
+            or (int(state["progress"].get("iteration_count") or 0) + 1)
+        )
+        phase = payload["phase"]
+        state.setdefault("transactions", {})["finish"] = {
+            "status": "started",
+            "run_id": args.run_id,
+            "iteration": iteration_index,
+            "started_at": now,
+        }
+
+        append_metrics = task.finish_iteration(args.run_id, payload)
+
+        progress = state["progress"]
+        progress["iteration_count"] = int(progress.get("iteration_count") or 0) + 1
+        progress["last_iteration_at"] = now
+        if payload["meaningful_progress"]:
+            progress["meaningful_iterations"] = (
+                int(progress.get("meaningful_iterations") or 0) + 1
+            )
+            progress["last_meaningful_progress_at"] = now
+        state["updated_at"] = now
+        state.setdefault("finalization", finalization_defaults())
+        state["phase"] = phase
+        state["working_memory"]["summary"] = payload["summary"]
+        if payload["next_angle"]:
+            state["working_memory"]["next_angle"] = payload["next_angle"]
+        if payload["open_questions"]:
+            state["working_memory"]["open_questions"] = payload["open_questions"]
+        state["errors"]["consecutive_failures"] = 0
+        state["errors"]["last_error"] = None
+
+        analysis = state.setdefault("analysis", {})
+        code_used = bool(
+            payload.get("code_used")
+            or payload.get("analysis_artifacts")
+            or payload.get("packages_used")
+            or payload.get("database_used")
+            or payload.get("database_artifacts")
+        )
+        analysis["last_iteration_code_used"] = code_used
+        analysis["code_used_recently"] = bool(
+            analysis.get("code_used_recently") or code_used
+        )
+        if code_used:
+            analysis["last_code_run_at"] = now
+            analysis["last_packages_used"] = payload.get("packages_used") or []
+            analysis["last_analysis_artifacts"] = (
+                payload.get("analysis_artifacts") or []
+            )
+            analysis["analysis_artifacts_count"] = len(
+                payload.get("analysis_artifacts") or []
+            )
+        database_used = bool(
+            payload.get("database_used")
+            or payload.get("database_artifacts")
+            or payload.get("database_summary")
+        )
+        analysis["last_iteration_database_used"] = database_used
+        analysis["database_used_recently"] = bool(
+            analysis.get("database_used_recently") or database_used
+        )
+        if database_used:
+            analysis["last_database_run_at"] = now
+            analysis["last_database_artifacts"] = (
+                payload.get("database_artifacts") or []
+            )
+            analysis["last_database_summary"] = payload.get("database_summary")
+        vision_used = bool(
+            payload.get("vision_used")
+            or payload.get("vision_artifacts")
+            or payload.get("vision_summary")
+        )
+        analysis["last_iteration_vision_used"] = vision_used
+        analysis["vision_used_recently"] = bool(
+            analysis.get("vision_used_recently") or vision_used
+        )
+        if vision_used:
+            analysis["last_vision_run_at"] = now
+            analysis["last_vision_artifacts"] = payload.get("vision_artifacts") or []
+            analysis["last_vision_summary"] = payload.get("vision_summary")
+
+        saturation = state.setdefault("saturation", {})
+        saturation["low_yield_threshold"] = int(
+            saturation.get("low_yield_threshold") or 2
+        )
+        saturation["last_iteration_new_sources"] = append_metrics["new_sources"]
+        saturation["last_iteration_new_findings"] = append_metrics["new_findings"]
+        saturation["last_iteration_duplicate_sources"] = append_metrics[
+            "duplicate_sources"
+        ]
+        saturation["last_iteration_duplicate_findings"] = append_metrics[
+            "duplicate_findings"
+        ]
+        if compute_low_yield(append_metrics, payload):
+            saturation["consecutive_low_yield"] = (
+                int(saturation.get("consecutive_low_yield") or 0) + 1
+            )
+            saturation["last_low_yield_at"] = now
+        else:
+            saturation["consecutive_low_yield"] = 0
+        saturation["topic_saturated"] = int(
+            saturation.get("consecutive_low_yield") or 0
+        ) >= int(saturation["low_yield_threshold"])
+
+        max_iterations = int(state["budget"].get("max_iterations") or 0)
+        reached_budget = (
+            max_iterations > 0 and int(progress["iteration_count"]) >= max_iterations
+        )
+        max_sources = int(state["budget"].get("max_sources") or 0)
+        existing_sources_count = (
+            len(
+                [
+                    line
+                    for line in task.sources_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    if line.strip()
+                ]
+            )
+            - append_metrics["new_sources"]
+        )
+        total_sources = existing_sources_count + append_metrics["new_sources"]
+        reached_max_sources = max_sources > 0 and total_sources >= max_sources
+        max_runtime_min = float(state["budget"].get("max_runtime_min") or 0)
+        created_at = state.get("created_at")
+        total_runtime_min = (
+            minutes_since(created_at, now=parse_ts(now)) if created_at else None
+        )
+        reached_max_runtime = (
+            max_runtime_min > 0
+            and total_runtime_min is not None
+            and total_runtime_min >= max_runtime_min
+        )
+        topic_saturated = (
+            bool(saturation.get("topic_saturated")) and phase == "synthesize"
+        )
+        stop_requested = bool(state.get("control", {}).get("stop_requested"))
+        pause_requested = bool(state.get("control", {}).get("pause_requested"))
+        completion_triggered = None
+        next_status = "idle"
+        if stop_requested:
+            next_status = "cancelled"
+        elif payload["should_complete"]:
+            next_status = "complete"
+            completion_triggered = "worker"
+        elif reached_budget:
+            next_status = "complete"
+            completion_triggered = "budget"
+        elif reached_max_runtime:
+            next_status = "complete"
+            completion_triggered = "budget"
+        elif reached_max_sources:
+            next_status = "complete"
+            completion_triggered = "budget"
+        elif topic_saturated:
+            next_status = "complete"
+            completion_triggered = "topic_saturated"
+        elif pause_requested:
+            next_status = "paused"
+
+        is_worker_initiated_final = completion_triggered == "worker" and payload.get(
+            "should_complete"
+        )
+        if next_status == "complete":
+            report = payload.get("final_report_markdown")
+            if report is None or not str(report).strip():
+                report = render_default_final_report(
+                    task, state, payload, iteration_index
+                )
+            completion_validation = validate_completion(
+                task,
+                state,
+                payload,
+                phase=phase,
+                report_markdown=str(report),
+                triggered_by=str(completion_triggered or "unknown"),
+            )
+            state.setdefault("completion", {})["last_validation"] = {
+                **completion_validation,
+                "validated_at": now,
+                "candidate_status": "complete",
+            }
+            if completion_validation["passed"]:
+                if is_worker_initiated_final:
+                    finalization_validation = _run_v13_finalization_validation(
+                        task, state, payload, report_markdown=str(report)
+                    )
+                    finalization_state = state.setdefault(
+                        "finalization", finalization_defaults()
+                    )
+                    payload_finalization = payload.get("finalization") or {}
+                    for key in (
+                        "inferred_user_need",
+                        "intended_recipient",
+                        "primary_deliverable_kind",
+                        "internal_artifacts",
+                        "candidate_artifacts",
+                        "blocking_defects",
+                        "nonblocking_defects",
+                        "revisions",
+                        "validation_evidence",
+                    ):
+                        if key in payload_finalization:
+                            finalization_state[key] = payload_finalization[key]
+                    finalization_state["last_validation_findings"] = (
+                        finalization_validation.get("findings") or []
+                    )
+                    finalization_state["last_validated_at"] = now
+                    finalization_state["attempt_count"] = (
+                        int(finalization_state.get("attempt_count") or 0) + 1
+                    )
+
+                    if finalization_validation.get("passed"):
+                        atomic_text_write(task.final_report_path, str(report).rstrip() + "\n")
+                        saved_report_path = str(task.final_report_path)
+                        state["artifacts"]["final_report_path"] = saved_report_path
+                        finalization_state["status"] = "passed"
+                        state["delivery"]["primary_file"] = saved_report_path
+                        state["delivery"]["review_ready"] = True
+                        state["delivery"]["ready"] = False
+                        next_status = "awaiting_review"
+                        state["status"] = "awaiting_review"
+                        revision_diff = build_revision_diff(
+                            pre_edit_revision_snap, state
+                        )
+                        state["revision_diff"] = revision_diff
+                        revision_snap = {
+                            "final_report_path": saved_report_path,
+                            "revision_count": int(
+                                state.get("review", {}).get("revision_count") or 0
+                            ),
+                        }
+                        state["revision_snapshot"] = revision_snap
+                        review = state.setdefault("review", {})
+                        review["review_gated"] = True
+                        if review.get("status") == "changes_requested":
+                            review["status"] = "pending"
+                    else:
+                        finalization_status = finalization_validation.get("status")
+                        if finalization_status == "needs_intervention":
+                            next_status = "idle"
+                            state["status"] = "idle"
+                            finalization_state["status"] = "needs_intervention"
+                        else:
+                            next_status = "finalize"
+                            state["status"] = "finalize"
+                            finalization_state["status"] = "rework"
+                        state["artifacts"]["final_report_path"] = None
+                        saved_report_path = None
+                else:
+                    atomic_text_write(task.final_report_path, str(report).rstrip() + "\n")
+                    saved_report_path = str(task.final_report_path)
+                    state["artifacts"]["final_report_path"] = saved_report_path
+                    state.setdefault("finalization", finalization_defaults())["status"] = "passed"
+                    state["delivery"]["primary_file"] = saved_report_path
+                    state["delivery"]["ready"] = True
+            else:
+                next_status = "idle"
+                state["artifacts"]["final_report_path"] = None
+
+        normalized_reason = set_history_reason(
+            state,
+            reason_for_finish(
+                next_status=next_status,
+                completion_triggered=completion_triggered,
+                completion_validation_passed=(
+                    None
+                    if completion_validation is None
+                    else bool(completion_validation.get("passed"))
+                ),
+                stop_requested=stop_requested,
+                pause_requested=pause_requested,
+            ),
+        )
+        state["status"] = next_status
+
+        if next_status in FINAL_STATUSES:
+            remove_job_id = state.get("job", {}).get("job_id")
+        elif next_status in REVIEW_WAIT_STATUSES:
+            job = state.get("job") or {}
+            if job.get("job_id"):
+                suspend_bound_job(state, reason="awaiting_review", at=now)
+                history = state.setdefault("history", {})
+                history["last_job_binding"] = snapshot_job_binding(state)
+
+        state["lock"].update(
+            {
+                "status": "free",
+                "run_id": None,
+                "lease_token": NO_ACTIVE_LEASE,
+                "started_at": None,
+                "iteration_index": None,
+            }
+        )
+        if next_status == "paused":
+            state["control"]["pause_requested"] = False
+            suspend_bound_job(state, reason="paused", at=now)
+        if next_status in {"complete", "cancelled"}:
+            state["control"]["stop_requested"] = False
+        if next_status == "complete":
+            job = state.get("job") or {}
+            if job.get("job_id"):
+                history = state.setdefault("history", {})
+                history["last_job_binding"] = snapshot_job_binding(state)
+        state["history"]["last_transition"] = f"finish:{next_status}"
+        state.setdefault("transactions", {})["finish"] = {
+            "status": "committed",
+            "run_id": args.run_id,
+            "iteration": iteration_index,
+            "committed_at": now,
+            "outcome": next_status,
+            "normalized_reason": normalized_reason,
+        }
+
+        notify_user = should_notify(state, payload, next_status)
+        if notify_user:
+            state["delivery"]["sent_updates"] = (
+                int(state["delivery"].get("sent_updates") or 0) + 1
+            )
+            state["delivery"]["last_update_at"] = now
+
+        append_run_log(
+            task,
+            timestamp=now,
+            iteration=iteration_index,
+            run_id=args.run_id,
+            phase=phase,
+            outcome=next_status,
+            normalized_reason=normalized_reason,
+            meaningful_progress=payload["meaningful_progress"],
+            new_sources_count=append_metrics["new_sources"],
+            new_findings_count=append_metrics["new_findings"],
+            duplicate_sources_count=append_metrics["duplicate_sources"],
+            duplicate_findings_count=append_metrics["duplicate_findings"],
+            low_yield_streak=int(saturation.get("consecutive_low_yield") or 0),
+            topic_saturated=bool(saturation.get("topic_saturated")),
+            short_summary=payload["summary"],
+        )
+
+    budget_phase_info = compute_budget_phase(
+        budget=state["budget"],
+        progress=progress,
+        total_sources=total_sources,
+        total_runtime_min=total_runtime_min,
+    )
+
+    removal_payload = None
+    if remove_job_id:
+        removal_payload = remove_cron_job(remove_job_id)
+        clear_bound_job(
+            task, removed_job_id=remove_job_id, removal_payload=removal_payload
+        )
+
+    refresh_task_playbook(task)
+    update_text = None
+    if notify_user:
+        update_text = compose_finish_update_text(
+            state,
+            payload,
+            next_status,
+            iteration_count=state["progress"]["iteration_count"],
+            final_report_path=saved_report_path,
+        )
+
+    json_dump(
+        {
+            "status": next_status,
+            "normalized_reason": normalized_reason,
+            "notify_user": notify_user,
+            "update_text": update_text,
+            "owner": state.get("owner"),
+            "summary": payload["summary"],
+            "next_angle": payload["next_angle"],
+            "final_report_path": saved_report_path,
+            "iteration_count": state["progress"]["iteration_count"],
+            "append_metrics": append_metrics,
+            "topic_saturated": state.get("saturation", {}).get("topic_saturated"),
+            "consecutive_low_yield": state.get("saturation", {}).get(
+                "consecutive_low_yield"
+            ),
+            "completion_validation": completion_validation,
+            "finalization_validation": finalization_validation,
+            "removed_job_id": remove_job_id,
+            "removal_payload": removal_payload,
+            "budget_phase": budget_phase_info.get("phase"),
+            "budget_phase_detail": budget_phase_info,
+            "total_sources": total_sources,
+            "total_runtime_min": budget_phase_info.get("total_runtime_min"),
+            "reached_max_runtime": reached_max_runtime,
+            "review_gated": next_status in REVIEW_WAIT_STATUSES,
+        }
+    )
+    return 0
+
+
+def fail_iteration(args: argparse.Namespace) -> int:
+    task = ResearchTask.from_args(
+        Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
+    )
+    manager = StateManager(task)
+    remove_job_id: str | None = None
+    with manager.editor() as state:
+        lock = state.get("lock") or {}
+        if state.get("status") != "running" or lock.get("status") != "held":
+            raise ValidationError("No active run to fail")
+        if lock.get("run_id") != args.run_id:
+            raise ValidationError(
+                f"Active run id mismatch: expected {lock.get('run_id')}, got {args.run_id}"
+            )
+
+        now = utc_now()
+        iteration_index = int(
+            lock.get("iteration_index")
+            or (int(state["progress"].get("iteration_count") or 0) + 1)
+        )
+        error_message = args.error.strip()
+        state["errors"]["failure_count"] = (
+            int(state["errors"].get("failure_count") or 0) + 1
+        )
+        state["errors"]["consecutive_failures"] = (
+            int(state["errors"].get("consecutive_failures") or 0) + 1
+        )
+        state["errors"]["last_error"] = {
+            "at": now,
+            "run_id": args.run_id,
+            "message": error_message,
+        }
+
+        threshold = int(state["errors"].get("failure_threshold") or 3)
+        stop_requested = bool(state.get("control", {}).get("stop_requested"))
+        pause_requested = bool(state.get("control", {}).get("pause_requested"))
+        threshold_reached = state["errors"]["consecutive_failures"] >= threshold
+        if stop_requested:
+            next_status = "cancelled"
+        elif args.requires_user_input or threshold_reached:
+            next_status = "failed"
+        elif pause_requested:
+            next_status = "paused"
+        else:
+            next_status = "idle"
+
+        task.write_iteration_markdown(
+            iteration_index=iteration_index,
+            run_id=args.run_id,
+            status="failed",
+            phase=state.get("phase") or "search",
+            summary=f"Iteration failed: {error_message}",
+            next_angle=state.get("working_memory", {}).get("next_angle"),
+            meaningful_progress=False,
+            sources=[],
+            findings=[],
+            open_questions=state.get("working_memory", {}).get("open_questions") or [],
+            note="worker failure",
+        )
+
+        normalized_reason = set_history_reason(
+            state,
+            reason_for_failure(
+                next_status=next_status,
+                requires_user_input=bool(args.requires_user_input),
+                threshold_reached=bool(threshold_reached),
+                stop_requested=stop_requested,
+                pause_requested=pause_requested,
+            ),
+        )
+        state["status"] = next_status
+        if next_status in FINAL_STATUSES:
+            remove_job_id = state.get("job", {}).get("job_id")
+        state["updated_at"] = now
+        state["lock"].update(
+            {
+                "status": "free",
+                "run_id": None,
+                "lease_token": NO_ACTIVE_LEASE,
+                "started_at": None,
+                "iteration_index": None,
+            }
+        )
+        if next_status == "paused":
+            state["control"]["pause_requested"] = False
+            suspend_bound_job(state, reason="paused", at=now)
+        if next_status in {"failed", "cancelled"}:
+            state["control"]["stop_requested"] = False
+        state["history"]["last_transition"] = f"fail:{next_status}"
+
+        notify_user = bool(
+            args.requires_user_input or next_status in {"failed", "cancelled"}
+        )
+        if notify_user:
+            state["delivery"]["sent_updates"] = (
+                int(state["delivery"].get("sent_updates") or 0) + 1
+            )
+            state["delivery"]["last_update_at"] = now
+
+        append_run_log(
+            task,
+            timestamp=now,
+            iteration=iteration_index,
+            run_id=args.run_id,
+            phase=state.get("phase") or "search",
+            outcome=f"failed:{next_status}",
+            normalized_reason=normalized_reason,
+            meaningful_progress=False,
+            low_yield_streak=int(
+                (state.get("saturation") or {}).get("consecutive_low_yield") or 0
+            ),
+            topic_saturated=bool(
+                (state.get("saturation") or {}).get("topic_saturated")
+            ),
+            short_summary=f"Iteration failed: {error_message}",
+        )
+
+    removal_payload = None
+    if remove_job_id:
+        removal_payload = remove_cron_job(remove_job_id)
+        clear_bound_job(
+            task, removed_job_id=remove_job_id, removal_payload=removal_payload
+        )
+
+    refresh_task_playbook(task)
+    update_text = None
+    if notify_user:
+        update_text = compose_failure_update_text(state, error_message, next_status)
+
+    json_dump(
+        {
+            "status": next_status,
+            "normalized_reason": normalized_reason,
+            "notify_user": notify_user,
+            "update_text": update_text,
+            "owner": state.get("owner"),
+            "error": error_message,
+            "failure_count": state["errors"]["failure_count"],
+            "consecutive_failures": state["errors"]["consecutive_failures"],
+            "removed_job_id": remove_job_id,
+            "removal_payload": removal_payload,
+        }
+    )
+    return 0
