@@ -64,6 +64,8 @@ Before tagging a release:
 
 - [ ] Run `scripts/check_research_mode.sh` from the package root.
 - [ ] Confirm the gate finishes with `ruff`, docs smoke, release smoke, `pyright`, selftest, and pytest all passing.
+- [ ] Confirm GitHub Actions CI is green on the release commit.
+- [ ] Confirm `uvx --from bandit bandit -q -r scripts -x scripts/selftest` has no findings.
 - [ ] For a focused lifecycle check, run `python3 scripts/release_smoke.py` from the package root.
 - [ ] Review `git diff --stat` and the full diff for unrelated workspace or memory changes.
 - [ ] Confirm release docs are covered by `scripts/check_research_mode_docs.py`.
@@ -103,6 +105,7 @@ Before asking someone else to try the package:
 - [ ] README explains installation through a repository clone inside the OpenClaw skills directory.
 - [ ] README links to Apache License, Version 2.0 via `LICENSE`.
 - [ ] README explains chat-first usage, launch parameters, review, common work patterns, launch modes, CLI command families, task states, scheduling, delivery, and quality gates.
+- [ ] README mentions that GitHub Actions runs the release gate and Bandit security smoke scan.
 - [ ] `TROUBLESHOOTING.md` explains diagnosis order, common failure modes, and safe repair paths.
 - [ ] `ARCHITECTURE.md` explains the system with diagrams and calibrated comparisons.
 - [ ] `RELEASING.md` explains the OpenClaw skill package boundary.

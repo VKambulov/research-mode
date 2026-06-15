@@ -547,6 +547,9 @@ scripts/check_research_mode.sh
 The full gate runs compile checks, linting, documentation smoke, release smoke,
 type checks, the selftest runner, and pytest-compatible tests.
 
+GitHub Actions runs the same release gate and a Bandit security smoke scan on
+pushes to `main` and on pull requests.
+
 ### Architecture
 
 Research Mode is designed around OpenClaw cron architecture:
@@ -1182,6 +1185,9 @@ scripts/check_research_mode.sh
 
 Полная проверка запускает compile checks, linting, docs smoke, release smoke,
 type checks, selftest-runner и pytest-compatible tests.
+
+GitHub Actions запускает ту же полную проверку и Bandit security smoke scan
+при push в `main` и в pull requests.
 
 ### Архитектура
 
