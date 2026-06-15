@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import copy
@@ -8,6 +9,7 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 SCRIPT = SCRIPTS_DIR / "research_mode.py"
+FAKE_BIN_DIR = Path(__file__).resolve().parent / "fake_bin"
 
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -17,8 +19,21 @@ def run(
     *args: str, cwd: Path | None = None, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     cmd = ["python3", str(SCRIPT), *args]
+    env = os.environ.copy()
+    env["PATH"] = f"{FAKE_BIN_DIR}{os.pathsep}{env.get('PATH', '')}"
+    if "--root" in args:
+        root_index = args.index("--root") + 1
+        if root_index < len(args):
+            env["RESEARCH_MODE_FAKE_OPENCLAW_STATE"] = str(
+                Path(args[root_index]) / ".fake-openclaw-state.json"
+            )
     return subprocess.run(
-        cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None, check=check
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd) if cwd else None,
+        check=check,
+        env=env,
     )
 
 
