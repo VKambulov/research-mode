@@ -1,5 +1,7 @@
 # Research Mode Troubleshooting
 
+[English](#english) | [Русский](#русский)
+
 This guide describes practical diagnosis and safe repair paths. It assumes that
 normal operation goes through helper commands, not manual edits to `state.json`.
 

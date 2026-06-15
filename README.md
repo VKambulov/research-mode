@@ -1,5 +1,7 @@
 # Research Mode
 
+[English](#english) | [Русский](#русский)
+
 `research-mode` is an OpenClaw cron-based skill for durable background research:
 bounded isolated iterations, persistent task state, review-gated finalization, and
 inspectable artifacts.

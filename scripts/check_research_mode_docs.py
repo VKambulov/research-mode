@@ -51,6 +51,7 @@ REQUIRED_SNIPPETS = {
         "scripts/check_research_mode.sh",
     ],
     "README.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "OpenClaw cron-based skill",
@@ -110,6 +111,7 @@ REQUIRED_SNIPPETS = {
         "check_research_mode.sh",
     ],
     "ARCHITECTURE.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "```mermaid",
@@ -122,6 +124,7 @@ REQUIRED_SNIPPETS = {
         "Review before delivery",
     ],
     "TROUBLESHOOTING.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "Diagnosis Order",
@@ -138,6 +141,7 @@ REQUIRED_SNIPPETS = {
         "Ручное редактирование файлов",
     ],
     "RELEASING.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "OpenClaw cron-based skill package",
@@ -165,6 +169,7 @@ REQUIRED_SNIPPETS = {
         "Apache License, Version 2.0",
     ],
     "RELEASE_NOTES.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "v0.1.0",
@@ -184,6 +189,7 @@ REQUIRED_SNIPPETS = {
         "END OF TERMS AND CONDITIONS",
     ],
     "SECURITY.md": [
+        "[English](#english) | [Русский](#русский)",
         "## English",
         "## Русский",
         "tokens, webhooks, chat ids",

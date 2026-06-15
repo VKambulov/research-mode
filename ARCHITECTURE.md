@@ -1,5 +1,7 @@
 # Research Mode Architecture
 
+[English](#english) | [Русский](#русский)
+
 `research-mode` is a durable research control plane for OpenClaw. It turns a
 large research goal into bounded worker iterations, keeps task state and
 artifacts on disk, and blocks user-facing delivery until a reviewable final

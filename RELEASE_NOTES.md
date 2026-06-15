@@ -1,5 +1,7 @@
 # Research Mode Release Notes
 
+[English](#english) | [Русский](#русский)
+
 License: Apache License, Version 2.0.
 
 ## English

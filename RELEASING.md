@@ -1,5 +1,7 @@
 # Research Mode Releasing
 
+[English](#english) | [Русский](#русский)
+
 Audience: maintainers.
 
 This is the maintainer-facing release procedure for `research-mode` as an

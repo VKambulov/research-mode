@@ -1,5 +1,7 @@
 # Security Policy
 
+[English](#english) | [Русский](#русский)
+
 ## English
 
 Research Mode is an OpenClaw cron-based skill for durable background research.
