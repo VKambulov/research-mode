@@ -167,8 +167,8 @@ REQUIRED_SNIPPETS = {
     "RELEASE_NOTES.md": [
         "## English",
         "## Русский",
-        "Current release",
-        "Текущий релиз",
+        "v0.1.0",
+        "GitHub Actions CI",
         "OpenClaw cron-based skill",
         "Known limitations",
         "Известные ограничения",

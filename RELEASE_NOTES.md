@@ -4,7 +4,7 @@ License: Apache License, Version 2.0.
 
 ## English
 
-### Current release
+### v0.1.0
 
 `research-mode` is an **OpenClaw cron-based skill** for durable background
 research.
@@ -28,6 +28,7 @@ standalone Python package, daemon, hosted service, or general research library.
 - RU+EN README and maintainer release procedure.
 - Local release gate through `scripts/check_research_mode.sh`.
 - Clean lifecycle smoke through `scripts/release_smoke.py`.
+- GitHub Actions CI for the release gate and Bandit security smoke scan.
 
 ### Known limitations
 
@@ -60,7 +61,7 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ## Русский
 
-### Текущий релиз
+### v0.1.0
 
 `research-mode` — это **OpenClaw skill**, который запускает длительное фоновое
 исследование через cron.
@@ -88,6 +89,7 @@ Python-пакет, не демон, не размещённый сервис и 
 - README и процедура релиза доступны на русском и английском.
 - Локальная проверка релиза запускается через `scripts/check_research_mode.sh`.
 - Чистый smoke-тест жизненного цикла запускается через `scripts/release_smoke.py`.
+- GitHub Actions CI запускает полную проверку релиза и Bandit security smoke scan.
 
 ### Известные ограничения
 
