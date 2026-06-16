@@ -10,6 +10,7 @@ from .helpers import (
     assert_true,
     human_ready_finalization,
     json_out,
+    route_to_finalize,
     run,
 )
 
@@ -125,6 +126,7 @@ def test_completion_validation(root: Path) -> None:
         "--constraint", "без форумных слухов", "--instruction", "отдельно отметить риски",
         "--deliverable", "итог в виде bullet list")
     lease = json_out(run("begin", "--root", str(cv_root), "--id", "cv-pass"))
+    lease = route_to_finalize(cv_root, "cv-pass", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -132,7 +134,7 @@ def test_completion_validation(root: Path) -> None:
             "summary": "Mutation task finalized with layered input preserved.",
             "next_angle": "done",
             "meaningful_progress": True,
-            "phase": "synthesize",
+            "phase": "finalize",
             "open_questions": [],
             "sources": [{"title": "mut-final-source"}],
             "findings": [{"kind": "synthesis", "text": "Layered steering survived into finalization."}],
@@ -160,6 +162,7 @@ def test_completion_rejection(root: Path) -> None:
     cr_root.mkdir(parents=True, exist_ok=True)
     run("create", "--root", str(cr_root), "--id", "cr-reject", "--goal", "Completion rejection test")
     lease = json_out(run("begin", "--root", str(cr_root), "--id", "cr-reject"))
+    lease = route_to_finalize(cr_root, "cr-reject", lease, sources=[], findings=[])
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -167,7 +170,7 @@ def test_completion_rejection(root: Path) -> None:
             "summary": "Tried to finalize without evidence base.",
             "next_angle": "collect actual evidence",
             "meaningful_progress": True,
-            "phase": "synthesize",
+            "phase": "finalize",
             "open_questions": [],
             "sources": [],
             "findings": [],
@@ -200,6 +203,7 @@ def test_deliverable_bullet_validation(root: Path) -> None:
     db_root.mkdir(parents=True, exist_ok=True)
     run("create", "--root", str(db_root), "--id", "db-bullets", "--goal", "Bullet deliverable validation", "--deliverable", "итог в виде bullet list")
     lease = json_out(run("begin", "--root", str(db_root), "--id", "db-bullets"))
+    lease = route_to_finalize(db_root, "db-bullets", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -207,7 +211,7 @@ def test_deliverable_bullet_validation(root: Path) -> None:
             "summary": "Structured bullet deliverable was not actually structured.",
             "next_angle": "rewrite as real bullets",
             "meaningful_progress": True,
-            "phase": "synthesize",
+            "phase": "finalize",
             "open_questions": [],
             "sources": [{"title": "bullet-source", "url": "https://example.com/bullet"}],
             "findings": [{"kind": "note", "text": "There is at least one concrete point."}],
@@ -233,6 +237,7 @@ def test_deliverable_comparative_validation(root: Path) -> None:
     dc_root.mkdir(parents=True, exist_ok=True)
     run("create", "--root", str(dc_root), "--id", "dc-compare", "--goal", "Comparative deliverable validation", "--deliverable", "сравнительная записка")
     lease = json_out(run("begin", "--root", str(dc_root), "--id", "dc-compare"))
+    lease = route_to_finalize(dc_root, "dc-compare", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -240,7 +245,7 @@ def test_deliverable_comparative_validation(root: Path) -> None:
             "summary": "Prepared a proper comparative memo.",
             "next_angle": "done",
             "meaningful_progress": True,
-            "phase": "synthesize",
+            "phase": "finalize",
             "open_questions": [],
             "sources": [{"title": "Source A", "url": "https://example.com/a"}, {"title": "Source B", "url": "https://example.com/b"}],
             "findings": [{"kind": "fact", "text": "Подход A дешевле."}, {"kind": "fact", "text": "Подход B надёжнее."}],

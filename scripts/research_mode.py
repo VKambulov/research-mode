@@ -58,9 +58,9 @@ SCRIPT_PATH = Path(__file__).resolve()
 SKILL_DIR = SCRIPT_PATH.parent.parent
 WORKSPACE_ROOT = SKILL_DIR.parent.parent
 DEFAULT_RESEARCH_ROOT = WORKSPACE_ROOT / "research"
-STATE_VERSION = 1
+STATE_VERSION = 2
 FINAL_STATUSES = {"complete", "failed", "cancelled"}
-PHASES = {"search", "analyze", "synthesize"}
+PHASES = {"search", "analyze", "synthesize", "verify", "finalize"}
 
 DEPTH_PRESETS = {
     "S": {"max_iterations": 3, "max_runtime_min": 45, "max_sources": 15},

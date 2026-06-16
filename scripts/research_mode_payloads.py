@@ -163,6 +163,113 @@ def finalization_defaults() -> dict[str, Any]:
     }
 
 
+def adequacy_defaults() -> dict[str, Any]:
+    return {
+        "status": "not_started",
+        "max_attempts": 2,
+        "attempt_count": 0,
+        "last_checked_at": None,
+        "last_checked_by": None,
+        "goal_alignment": None,
+        "coverage_summary": None,
+        "covered_requirements": [],
+        "coverage_gaps": [],
+        "evidence_risks": [],
+        "contradictions": [],
+        "recommended_next_phase": None,
+        "recommended_next_angle": None,
+        "blocking_reasons": [],
+        "validation_evidence": [],
+        "operator_next_action": None,
+    }
+
+
+def normalize_adequacy_review(value: Any) -> dict[str, Any] | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, dict):
+        raise ValidationError("adequacy must be an object")
+
+    allowed_statuses = {
+        "not_started",
+        "running",
+        "passed",
+        "needs_research",
+        "needs_analysis",
+        "needs_synthesis",
+        "needs_user_input",
+        "needs_intervention",
+    }
+    status = str(value.get("status") or "not_started").strip() or "not_started"
+    if status not in allowed_statuses:
+        raise ValidationError(f"Unsupported adequacy.status: {status}")
+
+    result = adequacy_defaults()
+    result["status"] = status
+    for key in (
+        "last_checked_at",
+        "last_checked_by",
+        "goal_alignment",
+        "coverage_summary",
+        "recommended_next_angle",
+    ):
+        text = str(value.get(key) or "").strip()
+        result[key] = text or None
+
+    recommended_next_phase = str(value.get("recommended_next_phase") or "").strip()
+    if recommended_next_phase:
+        if recommended_next_phase not in {
+            "search",
+            "analyze",
+            "synthesize",
+            "verify",
+            "finalize",
+        }:
+            raise ValidationError(
+                f"Unsupported adequacy.recommended_next_phase: {recommended_next_phase}"
+            )
+        result["recommended_next_phase"] = recommended_next_phase
+
+    for key in ("max_attempts", "attempt_count"):
+        raw_number = value.get(key)
+        if raw_number not in (None, ""):
+            try:
+                result[key] = int(raw_number)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"adequacy.{key} must be an integer") from exc
+
+    result["covered_requirements"] = _normalize_object_list(
+        value.get("covered_requirements"), "adequacy.covered_requirements"
+    )
+    result["coverage_gaps"] = _normalize_object_list(
+        value.get("coverage_gaps"), "adequacy.coverage_gaps"
+    )
+    result["evidence_risks"] = _normalize_object_list(
+        value.get("evidence_risks"), "adequacy.evidence_risks"
+    )
+    result["contradictions"] = _normalize_object_list(
+        value.get("contradictions"), "adequacy.contradictions"
+    )
+    result["blocking_reasons"] = _normalize_object_list(
+        value.get("blocking_reasons"), "adequacy.blocking_reasons"
+    )
+    result["validation_evidence"] = _normalize_object_list(
+        value.get("validation_evidence"), "adequacy.validation_evidence"
+    )
+
+    operator_next_action = value.get("operator_next_action")
+    if operator_next_action not in (None, ""):
+        if not isinstance(operator_next_action, dict):
+            raise ValidationError("adequacy.operator_next_action must be an object")
+        result["operator_next_action"] = {
+            str(key).strip(): item
+            for key, item in operator_next_action.items()
+            if str(key).strip() and item not in (None, "")
+        } or None
+
+    return result
+
+
 def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
     if value in (None, ""):
         return None
@@ -311,6 +418,7 @@ def result_template() -> dict[str, Any]:
         "notify_recommendation": "auto",
         "should_complete": False,
         "final_report_markdown": None,
+        "adequacy": adequacy_defaults(),
         "finalization": finalization_defaults(),
     }
 
@@ -443,6 +551,7 @@ def build_initial_state(
             "last_low_yield_at": None,
             "topic_saturated": False,
         },
+        "adequacy": adequacy_defaults(),
         "errors": {
             "failure_count": 0,
             "consecutive_failures": 0,

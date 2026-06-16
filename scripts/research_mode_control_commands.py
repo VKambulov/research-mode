@@ -20,6 +20,7 @@ from research_mode_corpus import (
     unique_copy_destination,
     write_corpus_manifest,
 )
+from research_mode_lifecycle_helpers import clear_reviewable_candidate
 from research_mode_payloads import normalize_string_list
 from research_mode_reasons import reason_for_control_action, set_history_reason
 from research_mode_registry import resolve_task_from_args
@@ -1045,6 +1046,7 @@ def request_changes_command(args: argparse.Namespace) -> int:
         if feedback not in open_questions:
             open_questions.append(f"Доработать по замечаниям: {feedback}")
 
+        clear_reviewable_candidate(state)
         state["status"] = "idle"
         job = state.get("job") or {}
         if job.get("job_id"):

@@ -7,6 +7,7 @@ from typing import Any
 
 from research_mode_lifecycle_helpers import (
     build_revision_diff,
+    clear_reviewable_candidate,
     compose_failure_update_text,
     compose_finish_update_text,
     compute_low_yield,
@@ -17,10 +18,17 @@ from research_mode_lifecycle_helpers import (
     validate_candidate_final,
     validate_completion,
 )
+from research_mode_adequacy import (
+    build_adequacy_operator_next_action,
+    collect_adequacy_reasons,
+    route_phase_for_adequacy_status,
+)
 from research_mode_surfaces import compute_budget_phase
 from research_mode_payloads import (
+    adequacy_defaults,
     finalization_defaults,
     normalize_analysis_artifacts,
+    normalize_adequacy_review,
     normalize_database_artifacts,
     normalize_database_summary,
     normalize_findings,
@@ -57,7 +65,7 @@ from research_mode_utils import (
 
 FINAL_STATUSES = {"complete", "failed", "cancelled"}
 REVIEW_WAIT_STATUSES = {"awaiting_review"}
-PHASES = {"search", "analyze", "synthesize", "finalize"}
+PHASES = {"search", "analyze", "synthesize", "verify", "finalize"}
 
 
 def _run_v13_finalization_validation(
@@ -328,6 +336,9 @@ def load_result_payload(path: Path) -> dict[str, Any]:
     notify = str(payload.get("notify_recommendation") or "auto")
     if notify not in {"auto", "silent", "milestone", "blocker", "final"}:
         raise ValidationError(f"Unsupported notify_recommendation: {notify}")
+    adequacy = normalize_adequacy_review(payload.get("adequacy"))
+    if phase == "verify" and adequacy is None:
+        raise ValidationError("verify phase result requires 'adequacy'")
     return {
         "summary": summary,
         "next_angle": str(payload.get("next_angle") or "").strip() or None,
@@ -354,6 +365,7 @@ def load_result_payload(path: Path) -> dict[str, Any]:
         "notify_recommendation": notify,
         "should_complete": bool(payload.get("should_complete", False)),
         "final_report_markdown": payload.get("final_report_markdown"),
+        "adequacy": adequacy,
         "finalization": normalize_finalization_trace(payload.get("finalization")),
     }
 
@@ -414,6 +426,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
             )
             progress["last_meaningful_progress_at"] = now
         state["updated_at"] = now
+        state.setdefault("adequacy", adequacy_defaults())
         state.setdefault("finalization", finalization_defaults())
         state["phase"] = phase
         state["working_memory"]["summary"] = payload["summary"]
@@ -556,6 +569,55 @@ def finish_iteration(args: argparse.Namespace) -> int:
         is_worker_initiated_final = completion_triggered == "worker" and payload.get(
             "should_complete"
         )
+        adequacy_state = state.setdefault("adequacy", adequacy_defaults())
+        if phase == "verify" and not stop_requested and not pause_requested:
+            payload_adequacy = payload.get("adequacy")
+            if not payload_adequacy:
+                raise ValidationError("verify phase result requires 'adequacy'")
+
+            max_attempts = int(adequacy_state.get("max_attempts") or 2)
+            attempt_count = int(adequacy_state.get("attempt_count") or 0) + 1
+            adequacy_state.update(payload_adequacy)
+            adequacy_state["max_attempts"] = max_attempts
+            adequacy_state["attempt_count"] = attempt_count
+            adequacy_state["last_checked_at"] = now
+            adequacy_state["last_checked_by"] = args.run_id
+
+            status = str(adequacy_state.get("status") or "not_started")
+            if status != "passed" and attempt_count >= max_attempts:
+                status = "needs_intervention"
+                adequacy_state["status"] = status
+
+            routed_phase = route_phase_for_adequacy_status(status) or "verify"
+            state["phase"] = routed_phase
+            adequacy_state["recommended_next_phase"] = routed_phase
+            next_status = "idle"
+            completion_triggered = None
+            clear_reviewable_candidate(state)
+
+            if adequacy_state.get("recommended_next_angle"):
+                state["working_memory"]["next_angle"] = adequacy_state[
+                    "recommended_next_angle"
+                ]
+            adequacy_reasons = collect_adequacy_reasons(adequacy_state)
+            if adequacy_reasons:
+                current_questions = state["working_memory"].get("open_questions") or []
+                merged_questions = list(dict.fromkeys([*current_questions, *adequacy_reasons]))
+                state["working_memory"]["open_questions"] = merged_questions
+            adequacy_state["operator_next_action"] = build_adequacy_operator_next_action(
+                state,
+                adequacy_state,
+            )
+
+        if next_status == "complete" and adequacy_state.get("status") != "passed":
+            adequacy_state["status"] = "running"
+            adequacy_state["last_checked_at"] = None
+            adequacy_state["operator_next_action"] = None
+            state["phase"] = "verify"
+            adequacy_state["recommended_next_phase"] = "verify"
+            clear_reviewable_candidate(state)
+            next_status = "idle"
+
         if next_status == "complete":
             report = payload.get("final_report_markdown")
             if report is None or not str(report).strip():
@@ -640,7 +702,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
                             next_status = "finalize"
                             state["status"] = "finalize"
                             finalization_state["status"] = "rework"
-                        state["artifacts"]["final_report_path"] = None
+                        clear_reviewable_candidate(state)
                         saved_report_path = None
                 else:
                     atomic_text_write(task.final_report_path, str(report).rstrip() + "\n")
@@ -658,7 +720,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
                         review["status"] = "pending"
             else:
                 next_status = "idle"
-                state["artifacts"]["final_report_path"] = None
+                clear_reviewable_candidate(state)
 
         normalized_reason = set_history_reason(
             state,

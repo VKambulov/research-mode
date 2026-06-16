@@ -106,8 +106,8 @@ research/
 ```
 
 `state.json` is the control plane. It records task status, working memory,
-current lock, cron binding, finalization state, review state, delivery state,
-and transition history.
+current lock, cron binding, research adequacy state, finalization state, review
+state, delivery state, and transition history.
 
 Append-only files such as `sources.jsonl`, `findings.jsonl`, and iteration
 notes preserve a reviewable trail. The task-local `workspace/` is available for
@@ -120,6 +120,8 @@ stateDiagram-v2
     [*] --> idle: create
     idle --> running: begin lease
     running --> idle: finish, continue
+    running --> idle: finish, verify needs more work
+    running --> idle: finish, adequacy passed and phase=finalize
     running --> finalize: finish, completion requested but finalization failed
     finalize --> running: begin rework
     running --> awaiting_review: finish with passed finalization
@@ -144,13 +146,42 @@ A worker iteration is intentionally bounded:
 
 This prevents one long assistant session from becoming the only source of truth.
 
+## Research Adequacy Gate
+
+```mermaid
+flowchart TD
+    WorkerResult[Worker result JSON] --> WantsComplete{completion requested?}
+    WantsComplete -- no --> Continue[idle / continue research]
+    WantsComplete -- yes --> Adequacy[result.adequacy]
+    Adequacy --> Check[research adequacy validation]
+    Check --> Passed{adequacy passed?}
+    Passed -- no, needs sources --> Search[search]
+    Passed -- no, needs analysis --> Analyze[analyze]
+    Passed -- no, needs synthesis --> Synthesize[synthesize]
+    Passed -- needs user/operator --> Blocked[idle with operator_next_action]
+    Passed -- yes --> Finalize[finalize]
+```
+
+The adequacy gate answers whether the research itself is sufficient before the
+system spends effort packaging a final deliverable. It evaluates goal alignment,
+explicit constraints, requested deliverable shape, open questions, source
+diversity, evidence gaps, and contradictions.
+
+Worker-provided `result.adequacy` is treated as a candidate assessment. Control
+code owns attempt counters, routing, and `operator_next_action`. This keeps the
+trust boundary clear: workers can report gaps, but lifecycle code decides
+whether the task returns to `search`, `analyze`, `synthesize`, or moves to
+`finalize`.
+
 ## Finalization and Review Gate
 
 ```mermaid
 flowchart TD
     WorkerResult[Worker result JSON] --> WantsComplete{should_complete?}
     WantsComplete -- no --> Continue[idle / continue research]
-    WantsComplete -- yes --> Trace[result.finalization]
+    WantsComplete -- yes --> Adequacy{adequacy passed?}
+    Adequacy -- no --> Verify[verify / research rework]
+    Adequacy -- yes --> Trace[result.finalization]
     Trace --> Validate[Finalization validation]
     Validate --> Passed{passed?}
     Passed -- no --> Rework[finalize / worker rework]
@@ -162,10 +193,11 @@ flowchart TD
     Changes --> Continue
 ```
 
-Worker-initiated completion requires `result.finalization.status="passed"`,
-non-empty validation evidence, no blocking defects, and inspectable candidate
-artifacts. `awaiting_review` means a candidate is ready for human review. It
-does not mean the result was already delivered.
+Worker-initiated completion requires a passed research adequacy assessment,
+`result.finalization.status="passed"`, non-empty validation evidence, no
+blocking defects, and inspectable candidate artifacts. `awaiting_review` means a
+candidate is ready for human review. It does not mean the result was already
+delivered.
 
 The operator-facing finalization surface exposes `operator_next_action`:
 
@@ -329,8 +361,9 @@ research/
 ```
 
 `state.json` — управляющий файл задачи. Там хранятся статус задачи, рабочая
-память, активная блокировка, привязка к cron, состояние финальной проверки,
-состояние ревью, состояние выдачи и история переходов.
+память, активная блокировка, привязка к cron, состояние проверки достаточности
+исследования, состояние финальной проверки, состояние ревью, состояние выдачи и
+история переходов.
 
 Файлы с дозаписью вроде `sources.jsonl`, `findings.jsonl` и заметок итераций
 оставляют проверяемый след. Локальный `workspace/` задачи нужен для скриптов,
@@ -343,6 +376,8 @@ stateDiagram-v2
     [*] --> idle: create
     idle --> running: begin lease
     running --> idle: finish, continue
+    running --> idle: finish, verify needs more work
+    running --> idle: finish, adequacy passed and phase=finalize
     running --> finalize: finish, completion requested but finalization failed
     finalize --> running: begin rework
     running --> awaiting_review: finish with passed finalization
@@ -368,13 +403,42 @@ stateDiagram-v2
 Так одна длинная сессия ассистента не становится единственным источником
 правды.
 
+## Проверка достаточности исследования
+
+```mermaid
+flowchart TD
+    WorkerResult[Worker result JSON] --> WantsComplete{completion requested?}
+    WantsComplete -- no --> Continue[idle / continue research]
+    WantsComplete -- yes --> Adequacy[result.adequacy]
+    Adequacy --> Check[research adequacy validation]
+    Check --> Passed{adequacy passed?}
+    Passed -- no, needs sources --> Search[search]
+    Passed -- no, needs analysis --> Analyze[analyze]
+    Passed -- no, needs synthesis --> Synthesize[synthesize]
+    Passed -- needs user/operator --> Blocked[idle with operator_next_action]
+    Passed -- yes --> Finalize[finalize]
+```
+
+Проверка достаточности отвечает на вопрос, достаточно ли само исследование до
+того, как система начнёт упаковывать финальный результат. Она оценивает
+соответствие цели, явные ограничения, требуемую форму результата, открытые
+вопросы, разнообразие источников, пробелы доказательств и противоречия.
+
+`result.adequacy`, который предоставляет worker, считается кандидатной оценкой.
+Control-код сам ведёт счётчик попыток, выбирает маршрут и рассчитывает
+`operator_next_action`. Граница доверия остаётся явной: worker сообщает о
+пробелах, а lifecycle-код решает, вернуть задачу в `search`, `analyze`,
+`synthesize` или перейти к `finalize`.
+
 ## Финальная проверка и ревью
 
 ```mermaid
 flowchart TD
     WorkerResult[Worker result JSON] --> WantsComplete{should_complete?}
     WantsComplete -- no --> Continue[idle / continue research]
-    WantsComplete -- yes --> Trace[result.finalization]
+    WantsComplete -- yes --> Adequacy{adequacy passed?}
+    Adequacy -- no --> Verify[verify / research rework]
+    Adequacy -- yes --> Trace[result.finalization]
     Trace --> Validate[Finalization validation]
     Validate --> Passed{passed?}
     Passed -- no --> Rework[finalize / worker rework]
@@ -386,11 +450,12 @@ flowchart TD
     Changes --> Continue
 ```
 
-Завершение, инициированное рабочей итерацией, требует
-`result.finalization.status="passed"`, непустых доказательств проверки,
-отсутствия блокирующих дефектов и кандидатных артефактов, которые можно
-посмотреть. `awaiting_review` означает, что кандидат готов к проверке человеком.
-Это ещё не означает, что результат доставлен пользователю.
+Завершение, инициированное рабочей итерацией, требует пройденной проверки
+достаточности исследования, `result.finalization.status="passed"`, непустых
+доказательств проверки, отсутствия блокирующих дефектов и кандидатных
+артефактов, которые можно посмотреть. `awaiting_review` означает, что кандидат
+готов к проверке человеком. Это ещё не означает, что результат доставлен
+пользователю.
 
 Поверхность финальной проверки показывает `operator_next_action`:
 

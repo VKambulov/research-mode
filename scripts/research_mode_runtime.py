@@ -475,6 +475,8 @@ def render_worker_prompt_text(
            You may use Python's stdlib sqlite3 or the sqlite3 CLI. Save schema/query files when SQLite materially influences the analysis.
            If images/screenshots materially influence the analysis, save the raw image plus any derived note/output artifact. Use vision as a helper, not as the sole source of truth when a more reliable structured or textual path exists.
            If code materially influences your conclusions, save the script/output artifacts and report them in the result JSON.
+           If phase=verify, evaluate research adequacy before finalization. Do not draft the final deliverable in this phase. Fill result.adequacy with goal alignment, coverage, gaps, evidence risks, contradictions, validation evidence, and the recommended next phase.
+           If phase=finalize, produce the human-reviewable candidate only after adequacy has passed. Record the finalization trace in result.finalization and provide final_report_markdown or a reviewable candidate artifact.
            If phase=synthesize, prefer the accumulated task artifacts over noisy new searching; you may scaffold from:
            python3 {script} draft-report --root {root_arg} --id {task_id} --format markdown
            If a deliverable is specified, shape the iteration toward that output form.
@@ -486,7 +488,7 @@ def render_worker_prompt_text(
              "next_angle": "the next most useful angle to investigate",
              "meaningful_progress": true,
              "code_used": false,
-             "phase": "search|analyze|synthesize",
+             "phase": "search|analyze|synthesize|verify|finalize",
              "open_questions": ["..."],
              "sources": [{{"url": "...", "title": "...", "note": "..."}}],
              "findings": [{{"kind": "fact|synthesis|risk|gap|plan", "text": "...", "source_urls": ["..."]}}],
@@ -498,6 +500,19 @@ def render_worker_prompt_text(
              "vision_used": false,
              "vision_artifacts": [{{"path": "workspace/outputs/screenshots/map.png", "kind": "screenshot|photo|chart|vision-note", "note": "why it matters"}}],
              "vision_summary": {{"purpose": "map triage", "images_reviewed": 2, "confidence": "medium"}},
+             "adequacy": {{
+               "status": "not_started|passed|needs_research|needs_analysis|needs_synthesis|needs_user_input|needs_intervention",
+               "goal_alignment": "whether the current evidence answers the user's goal",
+               "coverage_summary": "what has and has not been covered",
+               "covered_requirements": [{{"requirement": "...", "evidence": "..."}}],
+               "coverage_gaps": [{{"gap": "...", "severity": "blocking|minor"}}],
+               "evidence_risks": [{{"risk": "...", "severity": "blocking|minor"}}],
+               "contradictions": [{{"contradiction": "...", "severity": "blocking|minor"}}],
+               "recommended_next_phase": "search|analyze|synthesize|verify|finalize",
+               "recommended_next_angle": "what to do next if not passed",
+               "blocking_reasons": ["..."],
+               "validation_evidence": [{{"check": "goal_alignment", "result": "passed|failed", "reason": "..."}}]
+             }},
              "notify_recommendation": "auto|silent|milestone|blocker|final",
              "should_complete": false,
              "final_report_markdown": null
@@ -525,6 +540,9 @@ def render_worker_prompt_text(
         - Keep user messaging sparse: milestone/blocker/final only.
         - Treat constraints as hard boundaries.
         - Treat deliverable as the target output shape for synthesis and finalization.
+        - Before finalization, use phase=verify to decide whether the research itself is sufficient. If it is not sufficient, set result.adequacy.status to the appropriate rework status and recommend search, analyze, or synthesize.
+        - Set result.adequacy.status='passed' only when the accumulated evidence is sufficient for the user's goal and explicit constraints.
+        - In phase=finalize, focus on packaging a human-reviewable result; do not use finalization to hide unresolved research gaps.
         - Never assume a plain reply is user-visible in this cron context; use the message tool when notify_user=true.
         - When there is nothing to send, reply NO_REPLY.
         """

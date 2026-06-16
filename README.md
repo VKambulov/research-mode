@@ -177,6 +177,18 @@ Research Mode deliberately separates review from delivery.
 This separation prevents an unchecked draft, raw workspace artifact, or partial
 recovery note from being treated as the final user-facing result.
 
+#### Research Adequacy Gate
+
+Before finalization, Research Mode runs a research adequacy gate. This checks
+whether the accumulated sources, findings, constraints, open questions, and
+requested deliverable actually satisfy the user's goal.
+
+The gate uses `phase=verify` and the structured `result.adequacy` field. If the
+research is incomplete, lifecycle code routes the task back to `search`,
+`analyze`, or `synthesize` with an explicit `operator_next_action`. If adequacy
+passes, the task can move to `finalize`, where the system creates and validates
+the human-reviewable candidate.
+
 #### What The Task Produces
 
 A Research Mode task can produce several kinds of artifacts:
@@ -185,6 +197,8 @@ A Research Mode task can produce several kinds of artifacts:
   transition history;
 - `sources.jsonl`: source records and source metadata;
 - `findings.jsonl`: accumulated findings and evidence notes;
+- `adequacy`: state and result fields that record whether the research is
+  sufficient before finalization;
 - `iterations/`: per-run notes and intermediate work;
 - `workspace/`: task-local scripts, datasets, screenshots, exports, and
   analysis outputs;
@@ -395,6 +409,10 @@ Important states:
 - `failed`: task failed after an error path or threshold.
 
 Terminal or review-gated states should not be forced forward with `begin`.
+
+Semantic phases are separate from lifecycle states: `search`, `analyze`,
+`synthesize`, `verify`, and `finalize`. `verify` is the research adequacy phase;
+it decides whether to return to research work or continue to finalization.
 
 #### Operator Surfaces
 
@@ -607,6 +625,7 @@ review-ready candidates from worker rework and human-intervention states.
 - `research_id` must be a safe single path segment.
 - `--path` must stay under the selected research root.
 - Approval and delivery artifacts must stay inside the task directory.
+- Research completion must pass `result.adequacy` before finalization.
 - `awaiting_review` means review-ready, not delivery-ready.
 - Worker-initiated completion requires `result.finalization.status="passed"`.
 - Raw workspace artifacts must not be exposed as final user deliverables.
@@ -811,6 +830,19 @@ Research Mode намеренно разделяет ревью и доставк
 Это разделение не даёт непроверенному черновику, сырому артефакту рабочей
 области или заметке восстановления стать финальным пользовательским результатом.
 
+#### Проверка достаточности исследования
+
+Перед финальной проверкой Research Mode выполняет gate достаточности
+исследования. Он проверяет, действительно ли накопленные источники, выводы,
+ограничения, открытые вопросы и требуемая форма результата закрывают цель
+пользователя.
+
+Для этого используется `phase=verify` и структурированное поле
+`result.adequacy`. Если исследование неполное, lifecycle-код возвращает задачу в
+`search`, `analyze` или `synthesize` и показывает явный `operator_next_action`.
+Если достаточность пройдена, задача переходит в `finalize`, где формируется и
+проверяется кандидат для ревью человеком.
+
 #### Что создаёт задача
 
 Research Mode может создавать несколько типов артефактов:
@@ -819,6 +851,8 @@ Research Mode может создавать несколько типов арт
   переходов;
 - `sources.jsonl`: источники и их метаданные;
 - `findings.jsonl`: накопленные выводы и заметки по доказательствам;
+- `adequacy`: поля состояния и результата, фиксирующие достаточность
+  исследования перед финальной проверкой;
 - `iterations/`: заметки отдельных итераций и промежуточная работа;
 - `workspace/`: локальные скрипты, данные, скриншоты, экспорты и результаты
   анализа;
@@ -1034,6 +1068,11 @@ Id задачи должен быть безопасным одиночным с
 
 Terminal- и review-gated-состояния нельзя продвигать командой `begin` вслепую.
 
+Смысловые фазы отделены от lifecycle-состояний: `search`, `analyze`,
+`synthesize`, `verify` и `finalize`. `verify` — фаза проверки достаточности
+исследования; она решает, вернуться ли к исследовательской работе или перейти к
+финальной проверке.
+
 #### Представления оператора
 
 Сначала используются эти команды, а не ручное чтение JSON:
@@ -1247,6 +1286,8 @@ python3 scripts/release_smoke.py
 - `research_id` не может содержать path traversal или разделители пути.
 - `--path` должен указывать на задачу внутри выбранного `--root`.
 - Артефакты для утверждения и выдачи должны лежать внутри директории задачи.
+- Завершение исследования должно пройти `result.adequacy` перед финальной
+  проверкой.
 - `awaiting_review` означает готовность к ревью, а не доставку пользователю.
 - Финальная проверка от рабочей итерации требует `result.finalization.status="passed"`.
 - Сырые артефакты рабочей области не должны становиться финальным результатом.

@@ -103,6 +103,8 @@ Safe actions:
 
 Likely causes:
 
+- research adequacy did not pass, so the task was routed to `phase=verify` or
+  back to `search`, `analyze`, or `synthesize`;
 - `result.finalization.status` is missing or not `passed`;
 - validation evidence is empty;
 - blocking defects remain;
@@ -120,6 +122,12 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 
 Safe actions:
 
+- inspect `summary --format json` or `task-playbook.md` for
+  `adequacy.operator_next_action`, `coverage_gaps`, and `blocking_reasons`;
+- let the next worker turn handle `needs_research`, `needs_analysis`, or
+  `needs_synthesis`;
+- request user input only when adequacy reports `needs_user_input` or the
+  operator can see that a required constraint is impossible to satisfy;
 - let the next worker turn repair `worker_rework`;
 - use `request-changes` if the task reached review but the human review found
   defects;
@@ -410,6 +418,8 @@ python3 scripts/research_mode.py stop --id <research-id>
 
 Вероятные причины:
 
+- проверка достаточности исследования не пройдена, поэтому задача перешла в
+  `phase=verify` или вернулась в `search`, `analyze` либо `synthesize`;
 - отсутствует `result.finalization.status` или он не равен `passed`;
 - нет доказательств проверки;
 - остались блокирующие дефекты;
@@ -427,6 +437,12 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 
 Безопасные действия:
 
+- проверить в `summary --format json` или `task-playbook.md` поля
+  `adequacy.operator_next_action`, `coverage_gaps` и `blocking_reasons`;
+- дать следующей рабочей итерации обработать `needs_research`,
+  `needs_analysis` или `needs_synthesis`;
+- запрашивать ввод пользователя только при `needs_user_input` или когда
+  оператор видит, что обязательное ограничение невозможно выполнить;
 - позволить следующей итерации исправить `worker_rework`;
 - использовать `request-changes`, если задача дошла до ревью, но проверка
   человеком нашла дефекты;

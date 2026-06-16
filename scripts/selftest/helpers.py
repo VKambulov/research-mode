@@ -110,6 +110,118 @@ def human_ready_finalization(
     return trace
 
 
+def human_ready_adequacy(*, status: str = "passed") -> dict:
+    return {
+        "status": status,
+        "goal_alignment": "The collected evidence answers the user goal.",
+        "coverage_summary": "Core requirements and evidence were reviewed.",
+        "covered_requirements": [
+            {
+                "requirement": "answer user goal",
+                "evidence": "sources and findings",
+            }
+        ],
+        "coverage_gaps": [],
+        "evidence_risks": [],
+        "contradictions": [],
+        "recommended_next_phase": "finalize" if status == "passed" else "search",
+        "recommended_next_angle": "",
+        "blocking_reasons": [],
+        "validation_evidence": [
+            {"check": "adequacy", "result": status}
+        ],
+    }
+
+
+def route_to_finalize(
+    root: Path,
+    task_id: str,
+    lease: dict,
+    *,
+    sources: list | None = None,
+    findings: list | None = None,
+) -> dict:
+    """Route a task through adequacy and return a fresh finalize lease."""
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Research ready for adequacy verification.",
+                "next_angle": "Verify adequacy before finalization.",
+                "meaningful_progress": True,
+                "phase": lease.get("phase") or "synthesize",
+                "open_questions": [],
+                "sources": sources if sources is not None else [{"title": "src"}],
+                "findings": findings if findings is not None else [{"kind": "fact", "text": "finding"}],
+                "notify_recommendation": "silent",
+                "should_complete": True,
+                "final_report_markdown": "# Candidate\n\nCandidate report before adequacy verification.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    routed_to_verify = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result_file),
+        )
+    )
+    assert_eq(routed_to_verify["status"], "idle", "completion should first route to verify")
+
+    verify_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    assert_eq(verify_lease["phase"], "verify", "adequacy step should lease verify phase")
+    verify_result = Path(verify_lease["paths"]["result_file"])
+    verify_result.write_text(
+        json.dumps(
+            {
+                "summary": "Research adequacy passed.",
+                "next_angle": "Prepare final deliverable.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": human_ready_adequacy(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    routed_to_finalize = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            verify_lease["run_id"],
+            "--result-file",
+            str(verify_result),
+        )
+    )
+    assert_eq(routed_to_finalize["status"], "idle", "adequacy pass should route to finalize")
+    finalize_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    assert_eq(finalize_lease["phase"], "finalize", "finalization step should lease finalize phase")
+    return finalize_lease
+
+
 def finish_to_awaiting_review(
     root: Path,
     task_id: str,
@@ -119,19 +231,57 @@ def finish_to_awaiting_review(
     sources: list | None = None,
     findings: list | None = None,
 ) -> dict:
-    """Write a passing result file and finish iteration, expecting awaiting_review."""
-    result_file = Path(lease["paths"]["result_file"])
-    result_file.parent.mkdir(parents=True, exist_ok=True)
-    result_file.write_text(
+    """Run the explicit adequacy -> finalize cycle and return awaiting_review."""
+    if lease.get("phase") == "finalize":
+        finalize_result = Path(lease["paths"]["result_file"])
+        finalize_result.parent.mkdir(parents=True, exist_ok=True)
+        finalize_result.write_text(
+            json.dumps(
+                {
+                    "summary": "Research completed.",
+                    "next_angle": "",
+                    "meaningful_progress": True,
+                    "phase": "finalize",
+                    "open_questions": [],
+                    "sources": sources if sources is not None else [{"title": "src"}],
+                    "findings": findings if findings is not None else [{"kind": "fact", "text": "finding"}],
+                    "notify_recommendation": "final",
+                    "should_complete": True,
+                    "final_report_markdown": markdown or _DEFAULT_REPORT_MARKDOWN,
+                    "finalization": human_ready_finalization(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return json_out(
+            run(
+                "finish",
+                "--root",
+                str(root),
+                "--id",
+                task_id,
+                "--run-id",
+                lease["run_id"],
+                "--result-file",
+                str(finalize_result),
+            )
+        )
+
+    finalize_lease = route_to_finalize(root, task_id, lease, sources=sources, findings=findings)
+    finalize_result = Path(finalize_lease["paths"]["result_file"])
+    finalize_result.write_text(
         json.dumps(
             {
                 "summary": "Research completed.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
-                "sources": sources or [{"title": "src"}],
-                "findings": findings or [{"kind": "fact", "text": "finding"}],
+                "sources": [],
+                "findings": [],
                 "notify_recommendation": "final",
                 "should_complete": True,
                 "final_report_markdown": markdown or _DEFAULT_REPORT_MARKDOWN,
@@ -151,8 +301,8 @@ def finish_to_awaiting_review(
             "--id",
             task_id,
             "--run-id",
-            lease["run_id"],
+            finalize_lease["run_id"],
             "--result-file",
-            str(result_file),
+            str(finalize_result),
         )
     )

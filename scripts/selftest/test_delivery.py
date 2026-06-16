@@ -5,7 +5,15 @@ import json
 import zipfile
 from pathlib import Path
 
-from .helpers import assert_eq, assert_in, assert_true, finish_to_awaiting_review, json_out, run
+from .helpers import (
+    assert_eq,
+    assert_in,
+    assert_true,
+    finish_to_awaiting_review,
+    human_ready_adequacy,
+    json_out,
+    run,
+)
 
 
 _HUMAN_READY_FINALIZATION = {
@@ -37,7 +45,7 @@ def _finish_with_payload(root: Path, task_id: str, lease: dict, payload: dict) -
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    return json_out(
+    finished = json_out(
         run(
             "finish",
             "--root",
@@ -48,6 +56,71 @@ def _finish_with_payload(root: Path, task_id: str, lease: dict, payload: dict) -
             lease["run_id"],
             "--result-file",
             str(result_file),
+        )
+    )
+    if finished.get("status") != "idle":
+        return finished
+
+    verify_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    if verify_lease.get("phase") != "verify":
+        return finished
+    verify_result = Path(verify_lease["paths"]["result_file"])
+    verify_result.write_text(
+        json.dumps(
+            {
+                "summary": "Research adequacy passed.",
+                "next_angle": "Prepare the final deliverable.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": human_ready_adequacy(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    routed = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            verify_lease["run_id"],
+            "--result-file",
+            str(verify_result),
+        )
+    )
+    if routed.get("status") != "idle":
+        return routed
+
+    finalize_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    final_payload = dict(payload)
+    final_payload["phase"] = "finalize"
+    finalize_result = Path(finalize_lease["paths"]["result_file"])
+    finalize_result.write_text(
+        json.dumps(final_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            finalize_lease["run_id"],
+            "--result-file",
+            str(finalize_result),
         )
     )
 

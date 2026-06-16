@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
 from research_mode_finalization import build_finalization_surface
 from research_mode_task import ResearchTask
@@ -244,6 +245,11 @@ def build_summary_payload(
         except Exception:
             runtime_meta = {}
     analysis_state = state.get("analysis") or {}
+    adequacy_state = state.get("adequacy") or {}
+    adequacy_operator_next_action = (
+        adequacy_state.get("operator_next_action")
+        or build_adequacy_operator_next_action(state, adequacy_state)
+    )
     return {
         "id": state.get("id"),
         "title": state.get("title") or state.get("id"),
@@ -334,6 +340,19 @@ def build_summary_payload(
             "review_gated": bool(
                 (state.get("review") or {}).get("review_gated", False)
             ),
+        },
+        "adequacy": {
+            "status": adequacy_state.get("status") or "not_started",
+            "attempt_count": int(adequacy_state.get("attempt_count") or 0),
+            "max_attempts": int(adequacy_state.get("max_attempts") or 2),
+            "coverage_summary": adequacy_state.get("coverage_summary"),
+            "coverage_gaps": adequacy_state.get("coverage_gaps") or [],
+            "evidence_risks": adequacy_state.get("evidence_risks") or [],
+            "contradictions": adequacy_state.get("contradictions") or [],
+            "recommended_next_phase": adequacy_state.get("recommended_next_phase"),
+            "recommended_next_angle": adequacy_state.get("recommended_next_angle"),
+            "blocking_reasons": adequacy_state.get("blocking_reasons") or [],
+            "operator_next_action": adequacy_operator_next_action,
         },
         "finalization": build_finalization_surface(state),
         "delivery": {
@@ -521,6 +540,23 @@ def render_summary_text(summary: dict[str, Any]) -> str:
             f"src_pct={bp.get('source_pct', 0):.0%}, "
             f"rt_pct={bp.get('runtime_pct', 0):.0%}, "
             f"limit={bp.get('dominant_limit') or 'none'}"
+        )
+    adequacy = summary.get("adequacy") or {}
+    if adequacy:
+        gaps = adequacy.get("coverage_gaps") or adequacy.get("blocking_reasons") or []
+        gap_text = ""
+        if gaps:
+            first_gap = gaps[0]
+            if isinstance(first_gap, dict):
+                gap_text = first_gap.get("gap") or first_gap.get("reason") or first_gap.get("text") or ""
+            else:
+                gap_text = str(first_gap)
+        lines.append(
+            "Adequacy: "
+            f"status={adequacy.get('status')}, "
+            f"attempts={adequacy.get('attempt_count')}/{adequacy.get('max_attempts')}, "
+            f"next={adequacy.get('recommended_next_phase') or '-'}"
+            + (f", gap={gap_text}" if gap_text else "")
         )
     lines.extend(
         [

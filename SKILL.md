@@ -40,6 +40,7 @@ Current hardened baseline:
 - task ids are safe single path segments;
 - explicit task paths are constrained to the selected research root;
 - approval and delivery files must live under the task directory;
+- research adequacy must pass before finalization;
 - `awaiting_review` means review-ready, not delivery-ready;
 - helper-code changes must pass `scripts/check_research_mode.sh` from the package root.
 
@@ -222,6 +223,27 @@ Statuses stay simple (`idle`, `running`, `paused`, `complete`, `failed`, `cancel
 
 ### Deliverable-aware completion checks
 Completion validation is intentionally lightweight but inspectable. It may reject completion when the requested output shape is clearly not satisfied (for example weak bullet-list/comparative/overview structure).
+
+### Research adequacy gate
+Do not treat finalization as the place to discover whether the research itself is incomplete.
+Before a task can move to finalization, the worker must pass through `phase=verify` and report `result.adequacy`.
+
+The adequacy check is about the accumulated research, not report polish:
+- does the evidence answer the user's goal;
+- were explicit constraints and user instructions accounted for;
+- is the requested deliverable shape understood;
+- are important open questions resolved or intentionally judged nonblocking;
+- is the evidence base diverse enough for the task;
+- are coverage gaps, evidence risks, and contradictions recorded honestly.
+
+If the research is not sufficient, set `result.adequacy.status` to the appropriate state:
+- `needs_research` -> return to `search`;
+- `needs_analysis` -> return to `analyze`;
+- `needs_synthesis` -> return to `synthesize`;
+- `needs_user_input` -> pause for user/operator input;
+- `needs_intervention` -> require operator inspection.
+
+Only set `result.adequacy.status="passed"` when the research can responsibly move to `finalize`. Lifecycle code owns attempt counters, routing, and `operator_next_action`; worker-provided adequacy fields are candidate claims, not trusted control decisions.
 
 ### Human-ready finalization
 Do not treat a task as truly final just because a report file exists.

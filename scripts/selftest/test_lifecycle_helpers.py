@@ -5,6 +5,10 @@ from pathlib import Path
 
 from .helpers import assert_eq, assert_in, assert_true
 
+from research_mode_adequacy import (
+    build_adequacy_contract,
+    build_adequacy_guidance,
+)
 from research_mode_lifecycle_helpers import (
     build_evidence_gaps,
     build_revision_diff,
@@ -20,6 +24,30 @@ from research_mode_lifecycle_helpers import (
 
 
 # --- compute_confidence_score ---
+
+def test_adequacy_contract_carries_goal_constraints_and_open_questions(root: Path) -> None:
+    state = {
+        "id": "adequacy-contract",
+        "goal": "Compare options for a user-facing recommendation.",
+        "phase": "verify",
+        "working_memory": {
+            "constraints": ["Use primary sources where possible."],
+            "deliverable": "short comparative memo",
+            "open_questions": ["Reliability evidence is still weak."],
+            "user_instructions": ["Answer in Russian."],
+        },
+    }
+
+    contract = build_adequacy_contract(state)
+    guidance = build_adequacy_guidance(state)
+
+    assert_in("result.adequacy", contract["result_field"], "contract should name the result field")
+    assert_in("goal_alignment", contract["required_checks"], "contract should require goal alignment")
+    assert_in("source_diversity", contract["required_checks"], "contract should require source diversity")
+    assert_in("Reliability evidence is still weak.", contract["current_open_questions"], "contract should carry open questions")
+    assert_in("Use primary sources where possible.", contract["constraints"], "contract should carry constraints")
+    assert_in("short comparative memo", " ".join(guidance), "guidance should mention requested deliverable")
+    assert_in("Russian", " ".join(guidance), "guidance should include explicit user instructions")
 
 def test_confidence_no_sources(root: Path) -> None:
     finding = {"kind": "fact", "text": "Claim without refs"}

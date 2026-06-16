@@ -11,11 +11,108 @@ from .helpers import (
     finish_to_awaiting_review,
     human_ready_finalization,
     json_out,
+    route_to_finalize,
     run,
 )
 
 # Importable after helpers.py configures sys.path
 from research_mode_reasons import record_manual_override
+
+
+def test_adequacy_state_visible_in_summary_and_playbook(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-surface-test",
+            "--goal",
+            "Check adequacy surfaces.",
+            "--phase",
+            "verify",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-surface-test"))
+    result = Path(lease["paths"]["result_file"])
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "Coverage gap remains.",
+                "next_angle": "Search official docs.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": {
+                    "status": "needs_research",
+                    "coverage_summary": "Only secondary sources were reviewed.",
+                    "coverage_gaps": [
+                        {"gap": "primary documentation missing", "severity": "blocking"}
+                    ],
+                    "recommended_next_phase": "search",
+                    "recommended_next_angle": "Search official docs.",
+                    "blocking_reasons": ["primary documentation missing"],
+                    "validation_evidence": [
+                        {"check": "coverage", "result": "failed"}
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-surface-test",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-surface-test",
+            "--format",
+            "json",
+        )
+    )
+    adequacy = summary.get("adequacy") or {}
+    assert_eq(adequacy.get("status"), "needs_research", "summary should expose adequacy status")
+    assert_eq(adequacy.get("recommended_next_phase"), "search", "summary should expose recommended next phase")
+    assert_true(adequacy.get("operator_next_action"), "summary should expose adequacy operator action")
+
+    summary_text = run(
+        "summary",
+        "--root",
+        str(root),
+        "--id",
+        "adequacy-surface-test",
+        "--format",
+        "text",
+    ).stdout
+    assert_in("Adequacy:", summary_text, "summary text should show adequacy line")
+    assert_in("needs_research", summary_text, "summary text should show adequacy status")
+
+    playbook = (root / "adequacy-surface-test" / "task-playbook.md").read_text(encoding="utf-8")
+    assert_in("## Adequacy", playbook, "playbook should expose adequacy section")
+    assert_in("primary documentation missing", playbook, "playbook should include adequacy gap")
 
 
 def test_revision_diff_on_awaiting_review(root: Path) -> None:
@@ -44,6 +141,7 @@ def test_revision_diff_on_awaiting_review(root: Path) -> None:
     )
 
     lease = json_out(run("begin", "--root", str(root), "--id", "revision-diff-test"))
+    lease = route_to_finalize(root, "revision-diff-test", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -52,7 +150,7 @@ def test_revision_diff_on_awaiting_review(root: Path) -> None:
                 "summary": "First draft.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "f."}],
@@ -168,6 +266,7 @@ def test_provenance_confidence_in_final_report(root: Path) -> None:
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "provenance-test"))
+    lease = route_to_finalize(root, "provenance-test", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -176,7 +275,7 @@ def test_provenance_confidence_in_final_report(root: Path) -> None:
                 "summary": "Research complete.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [
                     {
@@ -411,6 +510,7 @@ def test_finalization_operator_next_action_for_rework_task(root: Path) -> None:
     lease = json_out(
         run("begin", "--root", str(root), "--id", "finalization-action-rework")
     )
+    lease = route_to_finalize(root, "finalization-action-rework", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -419,7 +519,7 @@ def test_finalization_operator_next_action_for_rework_task(root: Path) -> None:
                 "summary": "Research completed.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "src"}],
                 "findings": [{"kind": "fact", "text": "finding"}],

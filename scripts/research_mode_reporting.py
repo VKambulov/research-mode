@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_finalization import build_finalization_surface
 from research_mode_surfaces import compute_budget_phase, compute_consistency_warnings
 from research_mode_task import ResearchTask
@@ -41,6 +42,7 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
     errors = state.get("errors") or {}
     artifacts = state.get("artifacts") or {}
     history = state.get("history") or {}
+    adequacy = state.get("adequacy") or {}
     recent_runs = list(reversed(read_tsv_rows(task.runs_path)[-3:]))
     analysis = state.get("analysis") or {}
     runtime_meta: dict[str, Any] = {}
@@ -131,6 +133,42 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
         lines.append(
             f"- Runtime budget: {runtime_total_display} / {budget_phase_info['max_runtime_min'] or 'open'} min ({budget_phase_info['runtime_pct']:.0%})"
         )
+    lines.append("")
+    adequacy_action = (
+        adequacy.get("operator_next_action")
+        or build_adequacy_operator_next_action(state, adequacy)
+    )
+    lines.extend(
+        [
+            "## Adequacy",
+            "",
+            f"- Status: `{adequacy.get('status') or 'not_started'}`",
+            f"- Attempts: {int(adequacy.get('attempt_count') or 0)} / {int(adequacy.get('max_attempts') or 2)}",
+            f"- Recommended next phase: `{adequacy.get('recommended_next_phase') or '-'}`",
+            f"- Recommended next angle: {adequacy.get('recommended_next_angle') or '-'}",
+            f"- Operator next action: `{(adequacy_action or {}).get('kind') or '-'}`",
+        ]
+    )
+    gaps = adequacy.get("coverage_gaps") or []
+    if gaps:
+        lines.extend(["", "### Coverage gaps", ""])
+        for item in gaps[:5]:
+            if isinstance(item, dict):
+                text = item.get("gap") or item.get("reason") or item.get("text")
+            else:
+                text = str(item)
+            if text:
+                lines.append(f"- {text}")
+    reasons = adequacy.get("blocking_reasons") or []
+    if reasons:
+        lines.extend(["", "### Blocking reasons", ""])
+        for item in reasons[:5]:
+            if isinstance(item, dict):
+                text = item.get("reason") or item.get("text")
+            else:
+                text = str(item)
+            if text:
+                lines.append(f"- {text}")
     lines.append("")
     lines.extend(
         [

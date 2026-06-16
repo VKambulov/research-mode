@@ -6,7 +6,9 @@ from pathlib import Path
 from .helpers import assert_eq, assert_true
 
 from research_mode_payloads import (
+    adequacy_defaults,
     normalize_analysis_artifacts,
+    normalize_adequacy_review,
     normalize_database_summary,
     normalize_findings,
     normalize_sources,
@@ -191,6 +193,15 @@ def test_result_template_shape(root: Path) -> None:
         isinstance(tmpl["finalization"]["validation_evidence"], list),
         "result template finalization evidence should be a list",
     )
+    assert_eq(
+        tmpl["adequacy"]["status"],
+        "not_started",
+        "result template should expose adequacy review defaults",
+    )
+    assert_true(
+        isinstance(tmpl["adequacy"]["coverage_gaps"], list),
+        "result template adequacy coverage_gaps should be a list",
+    )
 
 
 def test_result_template_independent_copies(root: Path) -> None:
@@ -199,9 +210,90 @@ def test_result_template_independent_copies(root: Path) -> None:
     t2 = result_template()
     t1["sources"].append({"url": "test"})
     t1["finalization"]["validation_evidence"].append({"kind": "manual_review"})
+    t1["adequacy"]["coverage_gaps"].append({"gap": "missing forum evidence"})
     assert_eq(len(t2["sources"]), 0, "templates should be independent")
     assert_eq(
         len(t2["finalization"]["validation_evidence"]),
         0,
         "finalization template lists should be independent",
     )
+    assert_eq(
+        len(t2["adequacy"]["coverage_gaps"]),
+        0,
+        "adequacy template lists should be independent",
+    )
+
+
+def test_adequacy_defaults_shape(root: Path) -> None:
+    defaults = adequacy_defaults()
+    assert_eq(defaults["status"], "not_started", "default adequacy status")
+    assert_eq(defaults["max_attempts"], 2, "default max attempts")
+    assert_eq(defaults["attempt_count"], 0, "default attempt count")
+    assert_true(isinstance(defaults["covered_requirements"], list), "requirements list")
+    assert_true(isinstance(defaults["coverage_gaps"], list), "coverage gaps list")
+    assert_true(isinstance(defaults["validation_evidence"], list), "evidence list")
+
+
+def test_normalize_adequacy_review_valid(root: Path) -> None:
+    review = normalize_adequacy_review(
+        {
+            "status": "needs_research",
+            "goal_alignment": "Reliability evidence is incomplete.",
+            "coverage_summary": "Only marketplace reviews checked.",
+            "covered_requirements": ["price range covered"],
+            "coverage_gaps": [
+                {"gap": "repair forums missing", "severity": "blocking"}
+            ],
+            "evidence_risks": ["recent-review bias"],
+            "contradictions": [],
+            "recommended_next_phase": "search",
+            "recommended_next_angle": "Search repair forums.",
+            "blocking_reasons": ["insufficient reliability evidence"],
+            "validation_evidence": [
+                {"check": "coverage", "result": "failed"}
+            ],
+            "max_attempts": "4",
+            "attempt_count": "1",
+            "last_checked_at": "2026-06-15T16:00:00Z",
+            "last_checked_by": "worker",
+            "operator_next_action": {"kind": "worker_rework"},
+        }
+    )
+
+    assert_eq(review["status"], "needs_research", "status preserved")
+    assert_eq(review["recommended_next_phase"], "search", "next phase preserved")
+    assert_eq(review["max_attempts"], 4, "max attempts cast to int")
+    assert_eq(review["attempt_count"], 1, "attempt count cast to int")
+    assert_eq(
+        review["covered_requirements"],
+        [{"summary": "price range covered"}],
+        "string requirement should normalize to summary object",
+    )
+    assert_eq(
+        review["evidence_risks"],
+        [{"summary": "recent-review bias"}],
+        "string risk should normalize to summary object",
+    )
+    assert_eq(
+        review["operator_next_action"],
+        {"kind": "worker_rework"},
+        "operator_next_action trace is normalized but not trusted by lifecycle",
+    )
+
+
+def test_normalize_adequacy_review_rejects_invalid_status(root: Path) -> None:
+    try:
+        normalize_adequacy_review({"status": "approved"})
+        raise AssertionError("should raise ValidationError")
+    except ValidationError:
+        pass
+
+
+def test_normalize_adequacy_review_rejects_invalid_next_phase(root: Path) -> None:
+    try:
+        normalize_adequacy_review(
+            {"status": "needs_research", "recommended_next_phase": "review"}
+        )
+        raise AssertionError("should raise ValidationError")
+    except ValidationError:
+        pass

@@ -11,6 +11,7 @@ from .helpers import (
     finish_to_awaiting_review,
     human_ready_finalization,
     json_out,
+    route_to_finalize,
     run,
 )
 
@@ -130,6 +131,320 @@ def test_review_state_and_commands(root: Path) -> None:
     )
 
 
+def test_completion_attempt_routes_to_verify_before_finalization(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-precheck",
+            "--goal",
+            "Find the best option and explain why.",
+            "--phase",
+            "synthesize",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-precheck"))
+    result = Path(lease["paths"]["result_file"])
+    result.parent.mkdir(parents=True, exist_ok=True)
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "Looks done, but adequacy was not checked.",
+                "next_angle": "Verify coverage before finalization.",
+                "meaningful_progress": True,
+                "phase": "synthesize",
+                "open_questions": [],
+                "sources": [{"title": "Source"}],
+                "findings": [{"kind": "fact", "text": "Finding."}],
+                "notify_recommendation": "silent",
+                "should_complete": True,
+                "final_report_markdown": "# Candidate\n\nA candidate final report.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-precheck",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+    assert_eq(finished["status"], "idle", "completion should route back to idle")
+    state = json.loads((root / "adequacy-precheck" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["phase"], "verify", "task should enter verify phase")
+    assert_eq(state["adequacy"]["status"], "running", "adequacy should be running")
+    assert_true(not state["delivery"]["review_ready"], "verify routing should not mark review ready")
+    assert_true(
+        state["artifacts"].get("final_report_path") is None,
+        "verify routing should not save final report",
+    )
+    assert_eq(
+        finished["finalization_validation"],
+        None,
+        "verify routing should not run finalization validation",
+    )
+
+
+def test_verify_result_with_research_gap_routes_back_to_search(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-needs-research",
+            "--goal",
+            "Compare long-term reliability.",
+            "--phase",
+            "verify",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-needs-research"))
+    result = Path(lease["paths"]["result_file"])
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "The current evidence does not cover long-term reliability.",
+                "next_angle": "Search repair forums and service-center discussions.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": {
+                    "status": "needs_research",
+                    "goal_alignment": "Reliability evidence is missing.",
+                    "coverage_summary": "Only marketplace reviews were checked.",
+                    "coverage_gaps": [
+                        {"gap": "service-center failure reports missing", "severity": "blocking"}
+                    ],
+                    "evidence_risks": [],
+                    "contradictions": [],
+                    "recommended_next_phase": "search",
+                    "recommended_next_angle": "Search repair forums and service-center discussions.",
+                    "blocking_reasons": ["insufficient reliability evidence"],
+                    "validation_evidence": [
+                        {"check": "coverage", "result": "failed", "reason": "service data missing"}
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-needs-research",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+    assert_eq(finished["status"], "idle", "failed adequacy should keep task runnable")
+    state = json.loads((root / "adequacy-needs-research" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["phase"], "search", "needs_research should route to search")
+    assert_eq(state["adequacy"]["status"], "needs_research", "adequacy status should persist")
+    assert_eq(state["adequacy"]["attempt_count"], 1, "verify attempts should be state-owned")
+    assert_in(
+        "Search repair forums",
+        state["working_memory"]["next_angle"],
+        "recommended next angle should steer follow-up work",
+    )
+    assert_true(
+        any("service-center failure reports missing" in item for item in state["working_memory"]["open_questions"]),
+        "blocking gaps should become follow-up open questions",
+    )
+
+
+def test_adequacy_routing_overrides_conflicting_worker_next_phase(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-conflicting-next",
+            "--goal",
+            "Compare long-term reliability.",
+            "--phase",
+            "verify",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-conflicting-next"))
+    result = Path(lease["paths"]["result_file"])
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "The current evidence does not cover long-term reliability.",
+                "next_angle": "Search repair forums.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": {
+                    "status": "needs_research",
+                    "goal_alignment": "Reliability evidence is missing.",
+                    "coverage_summary": "Only marketplace reviews were checked.",
+                    "coverage_gaps": [{"gap": "service-center reports missing"}],
+                    "recommended_next_phase": "finalize",
+                    "recommended_next_angle": "Search repair forums.",
+                    "blocking_reasons": [],
+                    "validation_evidence": [
+                        {"check": "coverage", "result": "failed"}
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-conflicting-next",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-conflicting-next",
+            "--format",
+            "json",
+        )
+    )
+    assert_eq(summary["phase"], "search", "needs_research should route to search")
+    adequacy = summary.get("adequacy") or {}
+    assert_eq(
+        adequacy.get("recommended_next_phase"),
+        "search",
+        "state should expose lifecycle-owned next phase, not conflicting worker suggestion",
+    )
+    assert_eq(
+        (adequacy.get("operator_next_action") or {}).get("recommended_next_phase"),
+        "search",
+        "operator action should match actual lifecycle route",
+    )
+
+
+def test_verify_result_with_passed_adequacy_routes_to_finalize(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-passed",
+            "--goal",
+            "Check if research can be finalized.",
+            "--phase",
+            "verify",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-passed"))
+    result = Path(lease["paths"]["result_file"])
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "The research is sufficient for finalization.",
+                "next_angle": "Prepare the final report.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": {
+                    "status": "passed",
+                    "goal_alignment": "The collected evidence answers the goal.",
+                    "coverage_summary": "Core requirements and evidence were reviewed.",
+                    "covered_requirements": [
+                        {"requirement": "answer user goal", "evidence": "sources and findings"}
+                    ],
+                    "coverage_gaps": [],
+                    "evidence_risks": [],
+                    "contradictions": [],
+                    "recommended_next_phase": "finalize",
+                    "recommended_next_angle": "",
+                    "blocking_reasons": [],
+                    "validation_evidence": [
+                        {"check": "adequacy", "result": "passed"}
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "adequacy-passed",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+    assert_eq(finished["status"], "idle", "passed adequacy should not open review")
+    state = json.loads((root / "adequacy-passed" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["phase"], "finalize", "passed adequacy should route to finalize")
+    assert_eq(state["adequacy"]["status"], "passed", "passed adequacy should persist")
+    assert_true(not state["delivery"]["review_ready"], "adequacy pass should not mark review ready")
+
+
 def test_candidate_final_validation(root: Path) -> None:
     created = json_out(
         run(
@@ -145,6 +460,7 @@ def test_candidate_final_validation(root: Path) -> None:
     assert_eq(created["status"], "created", "finalization task create")
 
     lease1 = json_out(run("begin", "--root", str(root), "--id", "final-test"))
+    lease1 = route_to_finalize(root, "final-test", lease1)
     result1 = Path(lease1["paths"]["result_file"])
     result1.parent.mkdir(parents=True, exist_ok=True)
     result1.write_text(
@@ -153,7 +469,7 @@ def test_candidate_final_validation(root: Path) -> None:
                 "summary": "Draft quality report.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "Some source"}],
                 "findings": [{"kind": "fact", "text": "Some finding."}],
@@ -201,7 +517,7 @@ def test_candidate_final_validation(root: Path) -> None:
                 "summary": "Properly finalized report.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "good-source"}],
                 "findings": [
@@ -291,6 +607,7 @@ def test_finalize_state_after_draft_completion(root: Path) -> None:
     assert_eq(created["status"], "created", "finalize-test create")
 
     lease1 = json_out(run("begin", "--root", str(root), "--id", "finalize-test"))
+    lease1 = route_to_finalize(root, "finalize-test", lease1)
     result1 = Path(lease1["paths"]["result_file"])
     result1.parent.mkdir(parents=True, exist_ok=True)
     result1.write_text(
@@ -299,7 +616,7 @@ def test_finalize_state_after_draft_completion(root: Path) -> None:
                 "summary": "Draft quality deliverable.",
                 "next_angle": "finalize it",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "source"}],
                 "findings": [{"kind": "fact", "text": "One finding."}],
@@ -355,6 +672,13 @@ def test_needs_intervention_after_max_attempts(root: Path) -> None:
     )
     task_dir = root / "max-attempts-test"
     state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("adequacy", {})["status"] = "passed"
+    state["phase"] = "finalize"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     fin = None
 
     for i in range(3):
@@ -431,6 +755,7 @@ def test_validation_findings_in_summary_json(root: Path) -> None:
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "findings-summary-test"))
+    lease = route_to_finalize(root, "findings-summary-test", lease)
     result = Path(lease["paths"]["result_file"])
     result.write_text(
         json.dumps(
@@ -438,7 +763,7 @@ def test_validation_findings_in_summary_json(root: Path) -> None:
                 "summary": "Draft quality.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "f."}],
@@ -801,6 +1126,115 @@ def test_request_changes_from_awaiting_review(root: Path) -> None:
         1,
         "revision count should be incremented",
     )
+    state_after_changes = json.loads(
+        (root / "changes-review-test" / "state.json").read_text(encoding="utf-8")
+    )
+    assert_true(
+        state_after_changes.get("artifacts", {}).get("final_report_path") is None,
+        "request-changes should clear the current reviewable final report",
+    )
+    assert_true(
+        state_after_changes.get("delivery", {}).get("primary_file") is None,
+        "request-changes should clear stale delivery primary_file",
+    )
+    assert_true(
+        not state_after_changes.get("delivery", {}).get("review_ready"),
+        "request-changes should clear review_ready",
+    )
+    assert_true(
+        not state_after_changes.get("delivery", {}).get("ready"),
+        "request-changes should clear delivery ready",
+    )
+
+
+def test_failed_finalization_clears_stale_reviewable_delivery_candidate(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "stale-candidate-clear",
+            "--goal",
+            "Test stale candidate clearing",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "stale-candidate-clear"))
+    first = finish_to_awaiting_review(root, "stale-candidate-clear", lease)
+    assert_eq(first["status"], "awaiting_review", "fixture should reach review first")
+    json_out(
+        run(
+            "request-changes",
+            "--root",
+            str(root),
+            "--id",
+            "stale-candidate-clear",
+            "Need a better final report.",
+        )
+    )
+
+    state_path = root / "stale-candidate-clear" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("adequacy", {})["status"] = "passed"
+    state["phase"] = "finalize"
+    state["delivery"]["primary_file"] = str(root / "stale-candidate-clear" / "final-report.md")
+    state["delivery"]["review_ready"] = True
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    lease2 = json_out(run("begin", "--root", str(root), "--id", "stale-candidate-clear"))
+    result = Path(lease2["paths"]["result_file"])
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "Draft still has defects.",
+                "next_angle": "Improve the report.",
+                "meaningful_progress": True,
+                "phase": "finalize",
+                "open_questions": [],
+                "sources": [{"title": "src"}],
+                "findings": [{"kind": "fact", "text": "finding"}],
+                "notify_recommendation": "silent",
+                "should_complete": True,
+                "final_report_markdown": "# Draft\n\nToo short.",
+                "finalization": human_ready_finalization(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "stale-candidate-clear",
+            "--run-id",
+            lease2["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+    assert_eq(finished["status"], "finalize", "invalid finalization should stay in finalize")
+    state_after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert_true(
+        state_after.get("artifacts", {}).get("final_report_path") is None,
+        "failed finalization should clear current final report",
+    )
+    assert_true(
+        state_after.get("delivery", {}).get("primary_file") is None,
+        "failed finalization should clear stale primary_file",
+    )
+    assert_true(
+        not state_after.get("delivery", {}).get("review_ready"),
+        "failed finalization should clear review_ready",
+    )
+    assert_true(
+        not state_after.get("delivery", {}).get("ready"),
+        "failed finalization should clear delivery ready",
+    )
 
 
 def test_reopen_from_awaiting_review_reenables_same_job(root: Path) -> None:
@@ -929,6 +1363,7 @@ def test_empty_final_report_gets_default_rendering(root: Path) -> None:
     )
     assert_eq(created["status"], "created", "create status")
     lease = json_out(run("begin", "--root", str(root), "--id", "empty-report-test"))
+    lease = route_to_finalize(root, "empty-report-test", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -937,7 +1372,7 @@ def test_empty_final_report_gets_default_rendering(root: Path) -> None:
                 "summary": "No final report produced.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "finding"}],
@@ -990,6 +1425,7 @@ def test_truncated_report_triggers_rework(root: Path) -> None:
     )
     assert_eq(created["status"], "created", "create status")
     lease = json_out(run("begin", "--root", str(root), "--id", "truncated-report-test"))
+    lease = route_to_finalize(root, "truncated-report-test", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -998,7 +1434,7 @@ def test_truncated_report_triggers_rework(root: Path) -> None:
                 "summary": "Short.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "finding"}],
@@ -1058,15 +1494,16 @@ def test_failed_delivery_manifest_check(root: Path) -> None:
     assert_eq(created["status"], "created", "create status")
     task_dir = root / "delivery-manifest-fail-test"
     state_path = task_dir / "state.json"
+
+    lease = json_out(
+        run("begin", "--root", str(root), "--id", "delivery-manifest-fail-test")
+    )
+    lease = route_to_finalize(root, "delivery-manifest-fail-test", lease)
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["delivery"] = {"primary_file": "reports/nonexistent.pdf", "ready": True}
     state_path.write_text(
         json.dumps(state, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
-    )
-
-    lease = json_out(
-        run("begin", "--root", str(root), "--id", "delivery-manifest-fail-test")
     )
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1076,7 +1513,7 @@ def test_failed_delivery_manifest_check(root: Path) -> None:
                 "summary": "Report.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "finding"}],
@@ -1138,6 +1575,7 @@ def test_playbook_validation_scorecard(root: Path) -> None:
     lease = json_out(
         run("begin", "--root", str(root), "--id", "playbook-scorecard-test")
     )
+    lease = route_to_finalize(root, "playbook-scorecard-test", lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(
@@ -1146,7 +1584,7 @@ def test_playbook_validation_scorecard(root: Path) -> None:
                 "summary": "Draft.",
                 "next_angle": "done",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "finding"}],
@@ -1449,6 +1887,7 @@ def test_contract_missing_required_section(root: Path) -> None:
     )
 
     lease = json_out(run("begin", "--root", str(root), "--id", "contract-sec-test"))
+    lease = route_to_finalize(root, "contract-sec-test", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -1457,7 +1896,7 @@ def test_contract_missing_required_section(root: Path) -> None:
                 "summary": "Research complete.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "source"}],
                 "findings": [{"kind": "fact", "text": "finding."}],
@@ -1538,6 +1977,7 @@ def test_contract_passes_when_sections_present(root: Path) -> None:
     )
 
     lease = json_out(run("begin", "--root", str(root), "--id", "contract-pass-test"))
+    lease = route_to_finalize(root, "contract-pass-test", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -1546,7 +1986,7 @@ def test_contract_passes_when_sections_present(root: Path) -> None:
                 "summary": "Done.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "f."}],
@@ -1601,6 +2041,7 @@ def test_contract_skipped_when_no_contract(root: Path) -> None:
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "no-contract-test"))
+    lease = route_to_finalize(root, "no-contract-test", lease)
     result = Path(lease["paths"]["result_file"])
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text(
@@ -1609,7 +2050,7 @@ def test_contract_skipped_when_no_contract(root: Path) -> None:
                 "summary": "Done.",
                 "next_angle": "",
                 "meaningful_progress": True,
-                "phase": "synthesize",
+                "phase": "finalize",
                 "open_questions": [],
                 "sources": [{"title": "s"}],
                 "findings": [{"kind": "fact", "text": "f."}],

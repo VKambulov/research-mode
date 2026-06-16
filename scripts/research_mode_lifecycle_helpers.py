@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from research_mode_corpus import list_corpus_entries
+from research_mode_adequacy import build_adequacy_contract, build_adequacy_guidance
 from research_mode_finalization import (
     RAW_FINAL_ARTIFACT_SIGNALS,
     build_finalization_contract,
@@ -156,6 +157,14 @@ def stale_lock(state: dict[str, Any]) -> bool:
     return (now - started).total_seconds() > timeout_min * 60
 
 
+def clear_reviewable_candidate(state: dict[str, Any]) -> None:
+    state.setdefault("artifacts", {})["final_report_path"] = None
+    delivery = state.setdefault("delivery", {})
+    delivery["primary_file"] = None
+    delivery["review_ready"] = False
+    delivery["ready"] = False
+
+
 def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]:
     lock = state["lock"]
     run_id = lock["run_id"]
@@ -188,6 +197,10 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
     if state.get("phase") == "synthesize":
         execution_guidance.append(
             "Prefer synthesis over breadth: reuse accumulated artifacts before doing new search."
+        )
+    if state.get("phase") == "verify":
+        execution_guidance.append(
+            "Verify whether the accumulated research is sufficient for the user's goal before finalization. Do not draft the final deliverable in this phase unless adequacy is already passed."
         )
     if corpus_mode == "local":
         execution_guidance.append(
@@ -240,6 +253,8 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
         },
         "input_layer": input_layer,
         "execution_guidance": execution_guidance,
+        "adequacy_guidance": build_adequacy_guidance(state),
+        "adequacy_contract": build_adequacy_contract(state),
         "finalization_guidance": _build_finalization_guidance(state),
         "finalization_contract": build_finalization_contract(state),
         "progress": state.get("progress"),

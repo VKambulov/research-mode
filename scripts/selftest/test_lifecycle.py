@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .helpers import assert_eq, assert_in, assert_true, json_out, run
+from .helpers import assert_eq, assert_in, assert_true, finish_to_awaiting_review, json_out, run
 
 
 def test_basic_lifecycle(root: Path) -> None:
@@ -16,6 +16,8 @@ def test_basic_lifecycle(root: Path) -> None:
         )
     )
     assert_eq(created["status"], "created", "create status")
+    created_state = json.loads((root / "task-a" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(created_state["version"], 2, "new research tasks should use state version 2")
 
     status0 = run("status", "--root", str(root), "--id", "task-a", "--format", "text").stdout
     assert_in("Status: idle", status0, "task-a should start idle")
@@ -127,6 +129,43 @@ def test_basic_lifecycle(root: Path) -> None:
 
     resumed_from_failed = json_out(run("resume", "--root", str(root), "--id", "task-a"))
     assert_eq(resumed_from_failed["status"], "failed", "resume should not change failed state")
+
+
+def test_create_accepts_verify_phase_and_work_order_exposes_adequacy_contract(root: Path) -> None:
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "verify-phase-test",
+            "--goal",
+            "Verify whether the gathered sources answer the user question.",
+            "--phase",
+            "verify",
+            "--constraint",
+            "Use primary sources where possible.",
+            "--open-question",
+            "Are the collected sources diverse enough?",
+        )
+    )
+    assert_eq(created["status"], "created", "create should accept verify phase")
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "verify-phase-test"))
+    assert_eq(lease["status"], "leased", "begin should lease verify task")
+    assert_eq(lease["phase"], "verify", "work order should preserve verify phase")
+    assert_in("adequacy_contract", lease, "work order should expose adequacy contract")
+    assert_in("adequacy_guidance", lease, "work order should expose adequacy guidance")
+    assert_in(
+        "Verify whether the accumulated research is sufficient",
+        " ".join(lease["execution_guidance"]),
+        "verify phase should explain the work to perform",
+    )
+    assert_in(
+        "Are the collected sources diverse enough?",
+        json.dumps(lease["adequacy_contract"], ensure_ascii=False),
+        "adequacy contract should carry current open questions",
+    )
 
 
 def test_milestone_and_control(root: Path) -> None:
@@ -439,27 +478,24 @@ def test_saturation(root: Path) -> None:
         encoding="utf-8",
     )
     fin_f2 = json_out(run("finish", "--root", str(root), "--id", "task-f", "--run-id", lease_f2["run_id"], "--result-file", str(res_f2)))
-    assert_eq(fin_f2["status"], "awaiting_review", "topic saturation auto-completion should enter review gate")
+    assert_eq(fin_f2["status"], "idle", "topic saturation should route to adequacy before review")
     assert_eq(fin_f2["topic_saturated"], True, "second low-yield synth pass should mark saturation")
-    assert_true(bool(fin_f2["final_report_path"]), "saturation completion should render final report")
-    assert_eq(fin_f2["normalized_reason"], "completed:topic_saturated", "saturation completion should expose normalized terminal reason")
-    assert_true(fin_f2["review_gated"], "topic saturation auto-completion should be review-gated")
+    assert_true(not bool(fin_f2["final_report_path"]), "saturation precheck should not render final report")
+    assert_eq(fin_f2["normalized_reason"], "continued:iteration-complete", "saturation precheck should continue through adequacy")
+    assert_true(not fin_f2["review_gated"], "topic saturation should not be review-gated before adequacy")
     state_f = json.loads((root / "task-f" / "state.json").read_text(encoding="utf-8"))
-    assert_eq(state_f["delivery"]["review_ready"], True, "topic saturation should mark report review-ready")
+    assert_eq(state_f["phase"], "verify", "topic saturation should require adequacy verification")
+    assert_eq(state_f["delivery"]["review_ready"], False, "topic saturation should not mark report review-ready before adequacy")
     assert_eq(state_f["delivery"]["ready"], False, "topic saturation must not mark report delivery-ready")
 
     summary_f = json_out(run("summary", "--root", str(root), "--id", "task-f", "--format", "json"))
     assert_eq(summary_f["saturation"]["consecutive_low_yield"], 2, "summary should expose low-yield streak")
     assert_eq(summary_f["saturation"]["topic_saturated"], True, "summary should expose topic saturation")
-    assert_eq(summary_f["history"]["last_terminal_reason"], "completed:topic_saturated", "summary should expose last terminal reason")
+    assert_eq(summary_f["history"]["last_terminal_reason"], None, "topic saturation precheck should not set terminal reason")
 
     draft_f_md = run("draft-report", "--root", str(root), "--id", "task-f", "--format", "markdown").stdout
     assert_in("Topic saturated: yes", draft_f_md, "draft report should expose saturation status")
-    final_f = (root / "task-f" / "final-report.md").read_text(encoding="utf-8")
-    assert_in("## Final summary", final_f, "final report should render final summary block")
-    assert_in("## Metadata", final_f, "final report should render metadata block")
-    assert_in("Total findings accumulated", final_f, "final report should include accumulated totals")
-    assert_in("Topic saturated: yes", final_f, "final report should include saturation status")
+    assert_true(not (root / "task-f" / "final-report.md").exists(), "topic saturation precheck should not create final report")
 
 
 def test_active_task_resolution(root: Path) -> None:
@@ -486,19 +522,7 @@ def test_active_task_resolution(root: Path) -> None:
 def test_begin_on_terminal_states(root: Path) -> None:
     json_out(run("create", "--root", str(root), "--id", "task-term-complete", "--goal", "Terminal complete test", "--phase", "synthesize"))
     lease = json_out(run("begin", "--root", str(root), "--id", "task-term-complete"))
-    res = Path(lease["paths"]["result_file"])
-    res.write_text(
-        json.dumps({"summary": "Done.", "phase": "synthesize", "meaningful_progress": False, "sources": [], "findings": [], "notify_recommendation": "silent"}),
-        encoding="utf-8",
-    )
-    run("finish", "--root", str(root), "--id", "task-term-complete", "--run-id", lease["run_id"], "--result-file", str(res))
-    lease2 = json_out(run("begin", "--root", str(root), "--id", "task-term-complete"))
-    res2 = Path(lease2["paths"]["result_file"])
-    res2.write_text(
-        json.dumps({"summary": "Done2.", "phase": "synthesize", "meaningful_progress": False, "sources": [], "findings": [], "notify_recommendation": "silent"}),
-        encoding="utf-8",
-    )
-    run("finish", "--root", str(root), "--id", "task-term-complete", "--run-id", lease2["run_id"], "--result-file", str(res2))
+    finish_to_awaiting_review(root, "task-term-complete", lease)
     json_out(run("approve", "--root", str(root), "--id", "task-term-complete"))
 
     begin_complete = json_out(run("begin", "--root", str(root), "--id", "task-term-complete"))

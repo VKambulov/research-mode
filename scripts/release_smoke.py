@@ -86,6 +86,78 @@ def _write_result_file(lease: dict[str, Any]) -> Path:
                 "notify_recommendation": "final",
                 "should_complete": True,
                 "final_report_markdown": FINAL_REPORT_MARKDOWN,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
+def _write_adequacy_result_file(lease: dict[str, Any]) -> Path:
+    result_path = Path(str(lease["paths"]["result_file"]))
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(
+            {
+                "summary": "Release smoke adequacy passed.",
+                "next_angle": "Prepare final report.",
+                "meaningful_progress": True,
+                "phase": "verify",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "final_report_markdown": None,
+                "adequacy": {
+                    "status": "passed",
+                    "goal_alignment": "The smoke evidence covers the release lifecycle.",
+                    "coverage_summary": "Create, lease, completion request, and finalization path were exercised.",
+                    "covered_requirements": [
+                        {
+                            "requirement": "release lifecycle path",
+                            "evidence": "synthetic source and finding",
+                        }
+                    ],
+                    "coverage_gaps": [],
+                    "evidence_risks": [],
+                    "contradictions": [],
+                    "recommended_next_phase": "finalize",
+                    "recommended_next_angle": "",
+                    "blocking_reasons": [],
+                    "validation_evidence": [
+                        {"check": "adequacy", "result": "passed"}
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
+def _write_finalize_result_file(lease: dict[str, Any]) -> Path:
+    result_path = Path(str(lease["paths"]["result_file"]))
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(
+            {
+                "summary": "Release smoke research completed.",
+                "next_angle": "",
+                "meaningful_progress": True,
+                "phase": "finalize",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "final",
+                "should_complete": True,
+                "final_report_markdown": FINAL_REPORT_MARKDOWN,
                 "finalization": {
                     "status": "passed",
                     "inferred_user_need": "Verify the release lifecycle path.",
@@ -158,8 +230,44 @@ def run_smoke(root: Path) -> dict[str, Any]:
         "--result-file",
         str(result_file),
     )
-    if finished.get("status") != "awaiting_review":
-        raise RuntimeError(f"expected awaiting_review, got: {finished!r}")
+    if finished.get("status") != "idle":
+        raise RuntimeError(f"expected idle before adequacy, got: {finished!r}")
+
+    adequacy_lease = _run_research_mode("begin", "--root", root_arg, "--id", task_id)
+    if adequacy_lease.get("phase") != "verify":
+        raise RuntimeError(f"expected verify lease, got: {adequacy_lease!r}")
+    adequacy_result = _write_adequacy_result_file(adequacy_lease)
+    adequacy_finished = _run_research_mode(
+        "finish",
+        "--root",
+        root_arg,
+        "--id",
+        task_id,
+        "--run-id",
+        str(adequacy_lease["run_id"]),
+        "--result-file",
+        str(adequacy_result),
+    )
+    if adequacy_finished.get("status") != "idle":
+        raise RuntimeError(f"expected idle after adequacy, got: {adequacy_finished!r}")
+
+    finalize_lease = _run_research_mode("begin", "--root", root_arg, "--id", task_id)
+    if finalize_lease.get("phase") != "finalize":
+        raise RuntimeError(f"expected finalize lease, got: {finalize_lease!r}")
+    finalize_result = _write_finalize_result_file(finalize_lease)
+    finalized = _run_research_mode(
+        "finish",
+        "--root",
+        root_arg,
+        "--id",
+        task_id,
+        "--run-id",
+        str(finalize_lease["run_id"]),
+        "--result-file",
+        str(finalize_result),
+    )
+    if finalized.get("status") != "awaiting_review":
+        raise RuntimeError(f"expected awaiting_review, got: {finalized!r}")
 
     summary = _run_research_mode(
         "summary", "--root", root_arg, "--id", task_id, "--format", "json"
@@ -184,7 +292,10 @@ def run_smoke(root: Path) -> dict[str, Any]:
         "status": "ok",
         "root": str(root),
         "task_id": task_id,
-        "review_status": finished.get("status"),
+        "adequacy_status": (summary.get("adequacy") or {}).get("status"),
+        "post_adequacy_status": adequacy_finished.get("status"),
+        "finalization_status": finalized.get("status"),
+        "review_status": finalized.get("status"),
         "operator_next_action": next_action.get("kind"),
         "approved_status": approved.get("status"),
         "approved_artifact_path": approved.get("approved_artifact_path"),
