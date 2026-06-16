@@ -8,6 +8,10 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+- No changes yet.
+
+### v0.2.2 - 2026-06-16
+
 - Added public examples under `examples/`, including a safe web-to-Markdown
   capture package and a RAG evaluation tooling decision-matrix package with an
   XLSX workbook.
@@ -142,6 +146,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ## Русский
 
 ### Unreleased
+
+- Изменений пока нет.
+
+### v0.2.2 - 2026-06-16
 
 - Добавлены публичные примеры в `examples/`: package для безопасного
   web-to-Markdown capture и package с decision matrix по RAG evaluation tooling,
