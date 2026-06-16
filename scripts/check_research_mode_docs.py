@@ -27,6 +27,7 @@ REQUIRED_DOC_PATHS = [
     SKILL_DIR / "LICENSE",
     SKILL_DIR / "SECURITY.md",
     SKILL_DIR / "AGENTS.md",
+    SKILL_DIR / "examples" / "README.md",
 ]
 
 OPTIONAL_DOC_PATHS: list[Path] = []
@@ -114,6 +115,7 @@ REQUIRED_SNIPPETS = {
         "RELEASE_NOTES.md",
         "SECURITY.md",
         "AGENTS.md",
+        "examples/",
         "Apache License, Version 2.0",
         "LICENSE",
         "check_research_mode_docs.py",
@@ -180,7 +182,17 @@ REQUIRED_SNIPPETS = {
         "RELEASE_NOTES.md",
         "SECURITY.md",
         "AGENTS.md",
+        "examples/",
         "Apache License, Version 2.0",
+    ],
+    "examples/README.md": [
+        "Research Mode Examples",
+        "web-capture-evaluation/",
+        "rag-eval-tooling-matrix/",
+        "research-trace/",
+        "sanitized copy",
+        "private workspace paths",
+        "chat identifiers",
     ],
     "RELEASE_NOTES.md": [
         "[English](#english) | [Русский](#русский)",

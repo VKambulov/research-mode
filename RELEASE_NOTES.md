@@ -6,6 +6,21 @@ License: Apache License, Version 2.0.
 
 ## English
 
+### Unreleased
+
+- Added public examples under `examples/`, including a safe web-to-Markdown
+  capture package and a RAG evaluation tooling decision-matrix package with an
+  XLSX workbook.
+- Added sanitized `research-trace/` directories for the examples so reviewers
+  can inspect task state, runs, iterations, source/finding logs, result
+  payloads, playbooks, and selected analysis artifacts without exposing local
+  system paths or chat identifiers.
+- Clarified finalization guidance for multi-file deliverables: workers should
+  expose one `package` / `final_package` candidate directory instead of listing
+  each package file as a separate final candidate artifact.
+- Added docs smoke coverage for `examples/README.md` and the examples link in
+  the main README.
+
 ### v0.2.1
 
 Patch release for delivery-state consistency.
@@ -122,6 +137,21 @@ git diff --stat
 Before publishing, confirm `LICENSE` is included in the public package.
 
 ## Русский
+
+### Unreleased
+
+- Добавлены публичные примеры в `examples/`: package для безопасного
+  web-to-Markdown capture и package с decision matrix по RAG evaluation tooling,
+  включая XLSX workbook.
+- Для примеров добавлены очищенные `research-trace/` директории: можно посмотреть
+  состояние задачи, runs, итерации, журналы sources/findings, result payloads,
+  playbook и выбранные analysis artifacts без раскрытия локальных системных
+  путей или идентификаторов чатов.
+- Уточнена guidance для финализации multi-file deliverables: worker должен
+  отдавать одну директорию-кандидат `package` / `final_package`, а не перечислять
+  каждый файл пакета отдельным final candidate artifact.
+- Добавлено docs smoke покрытие для `examples/README.md` и ссылки на examples в
+  основном README.
 
 ### v0.2.1
 

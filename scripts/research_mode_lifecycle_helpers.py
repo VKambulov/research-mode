@@ -137,6 +137,7 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
         "Do not expose raw working fields such as confidence, evidence_urls, active/unknown statuses, or internal file paths as the final result unless they are translated into reader-facing meaning.",
         "Set result.finalization.status='passed' only when blocking_defects is empty and validation_evidence records what was actually checked.",
         "Keep delivery.review_ready separate from delivery.ready: worker finalization can reach review, but approval or mark-delivered makes it delivery-ready.",
+        "For multi-file or directory deliverables, expose one package candidate: set primary_deliverable_kind='package' and use a single candidate_artifacts entry for workspace/outputs/<package-name> with kind='final_package' or kind='package'. Do not list each package file as separate final candidate artifacts.",
     ]
     if deliverable:
         guidance.append(
