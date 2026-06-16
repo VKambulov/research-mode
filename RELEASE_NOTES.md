@@ -6,6 +6,15 @@ License: Apache License, Version 2.0.
 
 ## English
 
+### v0.2.1
+
+Patch release for delivery-state consistency.
+
+- `record-notification --status sent` now clears stale
+  `delivery.notification_blocked` and intent `blocked_reason` markers when an
+  operator or adapter successfully sends an intent that was previously blocked.
+- Added regression coverage for the `blocked -> sent` transition.
+
 ### v0.2.0
 
 `research-mode` v0.2.0 is a reliability release for long-running research
@@ -113,6 +122,15 @@ git diff --stat
 Before publishing, confirm `LICENSE` is included in the public package.
 
 ## Русский
+
+### v0.2.1
+
+Patch-релиз для согласованности delivery-state.
+
+- `record-notification --status sent` теперь очищает устаревшие маркеры
+  `delivery.notification_blocked` и `blocked_reason` у intent, если оператор
+  или адаптер успешно отправил intent, который раньше был заблокирован.
+- Добавлен regression test для перехода `blocked -> sent`.
 
 ### v0.2.0
 

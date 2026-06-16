@@ -1293,14 +1293,16 @@ def record_notification_command(args: argparse.Namespace) -> int:
 
         sent_incremented = False
         if target_status == "sent":
+            delivery = state.setdefault("delivery", {})
             if previous_status != "sent":
-                delivery = state.setdefault("delivery", {})
                 delivery["sent_updates"] = int(delivery.get("sent_updates") or 0) + 1
                 delivery["last_update_at"] = now
                 sent_incremented = True
+            delivery["notification_blocked"] = None
             intent["status"] = "sent"
             intent["sent_at"] = intent.get("sent_at") or now
             intent["error"] = None
+            intent["blocked_reason"] = None
         elif target_status == "failed":
             intent["status"] = "failed"
             intent["failed_at"] = now

@@ -1123,6 +1123,68 @@ def test_awaiting_review_finish_creates_delivery_intent(root: Path) -> None:
     )
 
 
+def test_record_notification_sent_clears_blocked_markers(root: Path) -> None:
+    task_id = "awaiting-review-blocked-intent-recorded-sent"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent without owner",
+            "--deliverable",
+            "full report",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    intent = finished.get("delivery_intent") or {}
+
+    assert_eq(intent.get("status"), "blocked", "missing owner should block intent")
+    assert_eq(
+        intent.get("blocked_reason"),
+        "notification_blocked:missing_owner",
+        "blocked intent should preserve the visible missing-owner reason",
+    )
+
+    recorded = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "sent",
+        )
+    )
+    assert_eq(recorded["previous_status"], "blocked", "should record blocked -> sent")
+    assert_eq(recorded["status"], "sent", "manual successful send should mark sent")
+    assert_eq(recorded["sent_updates"], 1, "manual send should increment once")
+
+    state_after = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    delivery_after = state_after.get("delivery", {})
+    intent_after = next(
+        item
+        for item in state_after.get("delivery_intents", [])
+        if item.get("id") == intent["id"]
+    )
+    assert_eq(
+        delivery_after.get("notification_blocked"),
+        None,
+        "successful manual send should clear stale delivery blocked marker",
+    )
+    assert_eq(
+        intent_after.get("blocked_reason"),
+        None,
+        "sent intent should not keep a stale blocked_reason",
+    )
+
+
 def test_create_owner_thread_topic_flow_into_delivery_intent(root: Path) -> None:
     task_id = "awaiting-review-thread-topic-intent"
     json_out(
