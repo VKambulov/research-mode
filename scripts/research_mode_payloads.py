@@ -452,6 +452,9 @@ def build_initial_state(
         "owner": {
             "channel": args.channel,
             "chat_id": args.chat_id,
+            "thread_id": getattr(args, "thread_id", None),
+            "topic_id": getattr(args, "topic_id", None),
+            "disabled_reason": None,
         },
         "job": {
             "job_id": None,
@@ -540,6 +543,20 @@ def build_initial_state(
             "channel_strategy": None,
             "review_ready": False,
             "ready": False,
+            "package_path": None,
+            "notification_blocked": None,
+        },
+        "delivery_intents": [],
+        "queue": {
+            "status": "free",
+            "waiting_since": None,
+            "position": None,
+            "blocked_by_task_id": None,
+            "blocked_by_run_id": None,
+            "active_task_id": None,
+            "active_run_id": None,
+            "last_acquired_at": None,
+            "last_released_at": None,
         },
         "saturation": {
             "consecutive_low_yield": 0,

@@ -99,6 +99,26 @@ Safe actions:
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.
 
+### Task Is Waiting In The Global Queue
+
+Likely causes:
+
+- another research task under the same root currently holds the global worker;
+- a previous worker turn left stale queue state;
+- an older waiter is ahead of this task.
+
+Checks:
+
+- `python3 scripts/research_mode.py queue-status --root <root>`;
+- task `status --format json` and `summary --format text`;
+- `queue.status`, `queue.position`, and `queue.blocked_by_task_id`.
+
+Safe actions:
+
+- wait for the active task to finish if the holder is fresh;
+- treat `deferred:global-research-lock` as normal waiting, not a failed cron tick;
+- inspect stale queue state before manual repair.
+
 ### Completion Was Rejected
 
 Likely causes:
@@ -413,6 +433,26 @@ python3 scripts/research_mode.py stop --id <research-id>
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
 - не запускать ещё один worker вслепую поверх активной блокировки;
 - при противоречивом состоянии сначала читать `task-playbook.md`.
+
+### Задача ждёт global queue
+
+Вероятные причины:
+
+- другая research-задача в том же root сейчас держит global worker;
+- предыдущая итерация оставила stale queue state;
+- более старый waiter стоит впереди этой задачи.
+
+Проверки:
+
+- `python3 scripts/research_mode.py queue-status --root <root>`;
+- `status --format json` и `summary --format text` для задачи;
+- `queue.status`, `queue.position` и `queue.blocked_by_task_id`.
+
+Безопасные действия:
+
+- подождать завершения активной задачи, если holder свежий;
+- считать `deferred:global-research-lock` штатным ожиданием, а не ошибкой cron tick;
+- перед ручным исправлением проверить stale queue state.
 
 ### Завершение отклонено
 

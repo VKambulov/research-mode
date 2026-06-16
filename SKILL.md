@@ -294,6 +294,9 @@ Successful `finish` writes `transactions.finish.status=committed` with the run i
 ## Execution discipline
 
 - One run = one bounded iteration.
+- Worker iterations are serialized per research root by the global iteration queue.
+- A `begin` response with `status=skipped` and `normalized_reason=deferred:global-research-lock` is normal queue waiting, not a failed worker turn.
+- Use `queue-status`, `status`, or `summary` to inspect the active holder and waiters before attempting recovery.
 - `state.json` remains the source of truth.
 - Research task ids must be safe single path segments; never use `/`, `\`, `.`, `..`, or path traversal in ids.
 - `--path` must point to a task under the selected `--root`; do not operate on arbitrary filesystem paths.

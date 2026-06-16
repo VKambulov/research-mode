@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from research_mode_corpus import list_corpus_entries
+from research_mode_queue import read_queue_status
 from research_mode_registry import list_task_records, resolve_task_from_args
 from research_mode_surfaces import (
     build_summary_payload,
@@ -120,4 +121,28 @@ def list_tasks(args: argparse.Namespace) -> int:
             )
         return 0
     json_dump({"tasks": tasks, "count": len(tasks)})
+    return 0
+
+
+def queue_status_command(args: argparse.Namespace) -> int:
+    root = Path(args.root).expanduser().resolve()
+    ensure_dir(root)
+    payload = read_queue_status(root)
+    if args.format == "text":
+        if payload.get("active_task_id"):
+            sys.stdout.write(
+                "Queue: running global research worker\n"
+                f"Active: {payload.get('active_task_id')} / {payload.get('active_run_id')}\n"
+            )
+        else:
+            sys.stdout.write("Queue: free\n")
+        waiters = payload.get("waiters") or []
+        if waiters:
+            sys.stdout.write(f"Waiters: {len(waiters)}\n")
+            for idx, waiter in enumerate(waiters, start=1):
+                sys.stdout.write(
+                    f"- {idx}. {waiter.get('task_id')} since {waiter.get('first_waiting_at')}\n"
+                )
+        return 0
+    json_dump(payload)
     return 0

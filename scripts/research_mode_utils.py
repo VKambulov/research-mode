@@ -8,6 +8,7 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 
@@ -217,8 +218,14 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 class StateEditor:
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        normalize: Callable[[dict[str, Any]], bool] | None = None,
+    ):
         self.path = path
+        self.normalize = normalize
         self.handle = None
         self.state: dict[str, Any] | None = None
 
@@ -232,6 +239,8 @@ class StateEditor:
             raise ValidationError(f"Invalid state file: {self.path}: {exc}") from exc
         if not isinstance(state, dict):
             raise ValidationError(f"Invalid state file: {self.path}: expected object")
+        if self.normalize is not None:
+            self.normalize(state)
         self.state = state
         return self.state
 

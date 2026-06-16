@@ -579,7 +579,10 @@ Research Mode is designed around OpenClaw cron architecture:
 2. OpenClaw cron starts isolated worker turns.
 3. Each worker turn calls `begin`, does one bounded iteration, writes a result
    JSON file, and calls `finish`.
-4. `awaiting_review` stops further worker acquisition until the operator uses
+4. Worker execution is serialized per research root by the global iteration
+   queue. Multiple tasks may be scheduled together; a skipped tick with
+   `deferred:global-research-lock` is normal waiting, not failure.
+5. `awaiting_review` stops further worker acquisition until the operator uses
    `approve`, `request-changes`, `reopen`, or `stop`.
 
 The helper scripts are deterministic control-plane tools. The autonomous research
@@ -613,6 +616,7 @@ Use these instead of manually stitching state files:
 
 - `summary`
 - `status`
+- `queue-status`
 - `draft-report`
 - `task-playbook.md`
 - `runs.tsv`
@@ -1239,7 +1243,10 @@ GitHub Actions запускает ту же полную проверку и Ban
 1. У задачи есть директория с `state.json` и артефактами.
 2. OpenClaw cron запускает изолированные рабочие итерации.
 3. Каждая итерация делает один ограниченный цикл: `begin` → работа → JSON-результат → `finish`.
-4. `awaiting_review` останавливает новые рабочие блокировки, пока оператор не выполнит
+4. Рабочие итерации сериализуются на уровне research root через global iteration queue.
+   Несколько задач можно планировать одновременно; пропущенный тик с
+   `deferred:global-research-lock` означает ожидание очереди, а не сбой.
+5. `awaiting_review` останавливает новые рабочие блокировки, пока оператор не выполнит
    `approve`, `request-changes`, `reopen` или `stop`.
 
 Скрипты можно запускать руками, но штатная модель — именно OpenClaw cron, а не

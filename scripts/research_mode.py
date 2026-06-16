@@ -35,6 +35,7 @@ from research_mode_lifecycle_commands import (
 from research_mode_query_commands import (
     draft_report_command,
     list_tasks,
+    queue_status_command,
     status_command,
     summary_command,
 )
@@ -216,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     begin.add_argument("--id")
     begin.add_argument("--path")
+    begin.add_argument(
+        "--queue-policy",
+        default="global_iteration_lock",
+        choices=["global_iteration_lock", "disabled"],
+    )
     begin.set_defaults(func=begin_iteration)
 
     finish = subparsers.add_parser(
@@ -545,6 +551,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     list_cmd.add_argument("--format", choices=["json", "text"], default="json")
     list_cmd.set_defaults(func=list_tasks)
+
+    queue_status = subparsers.add_parser(
+        "queue-status",
+        help="Show the root-global research worker queue",
+        parents=[root_parent],
+    )
+    queue_status.add_argument("--format", choices=["json", "text"], default="json")
+    queue_status.set_defaults(func=queue_status_command)
 
     for action in ("pause", "resume", "stop"):
         sub = subparsers.add_parser(

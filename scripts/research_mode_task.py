@@ -19,6 +19,70 @@ from research_mode_utils import (
 )
 
 
+def normalize_task_state_defaults(state: dict[str, Any]) -> bool:
+    changed = False
+
+    def ensure_mapping(key: str) -> dict[str, Any]:
+        nonlocal changed
+        value = state.get(key)
+        if not isinstance(value, dict):
+            value = {}
+            state[key] = value
+            changed = True
+        return value
+
+    owner = ensure_mapping("owner")
+    for key in ("channel", "chat_id", "thread_id", "topic_id", "disabled_reason"):
+        if key not in owner:
+            owner[key] = None
+            changed = True
+
+    delivery = ensure_mapping("delivery")
+    delivery_defaults = {
+        "update_policy": "milestone",
+        "milestone_every_iterations": 2,
+        "last_update_at": None,
+        "sent_updates": 0,
+        "primary_file": None,
+        "attachments": [],
+        "summary_text": None,
+        "channel_strategy": None,
+        "review_ready": False,
+        "ready": False,
+        "package_path": None,
+        "notification_blocked": None,
+    }
+    for key, value in delivery_defaults.items():
+        if key not in delivery:
+            delivery[key] = list(value) if isinstance(value, list) else value
+            changed = True
+
+    if "delivery_intents" not in state or not isinstance(
+        state.get("delivery_intents"), list
+    ):
+        state["delivery_intents"] = []
+        changed = True
+
+    queue = ensure_mapping("queue")
+    queue_defaults = {
+        "status": "free",
+        "waiting_since": None,
+        "position": None,
+        "blocked_by_task_id": None,
+        "blocked_by_run_id": None,
+        "active_task_id": None,
+        "active_run_id": None,
+        "last_acquired_at": None,
+        "last_released_at": None,
+    }
+    for key, value in queue_defaults.items():
+        if key not in queue:
+            queue[key] = value
+            changed = True
+
+    return changed
+
+
 class ResearchTask:
     def __init__(self, task_dir: Path):
         self.task_dir = task_dir.resolve()
@@ -72,7 +136,9 @@ class ResearchTask:
     def load_state(self) -> dict[str, Any]:
         if not self.state_path.exists():
             raise StateNotFoundError(f"State file not found: {self.state_path}")
-        return read_json(self.state_path)
+        state = read_json(self.state_path)
+        normalize_task_state_defaults(state)
+        return state
 
     def read_state(self) -> dict[str, Any]:
         return self.load_state()
@@ -450,4 +516,7 @@ class StateManager:
         return self.task.read_state()
 
     def editor(self) -> StateEditor:
-        return StateEditor(self.task.state_path)
+        return StateEditor(
+            self.task.state_path,
+            normalize=normalize_task_state_defaults,
+        )

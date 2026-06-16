@@ -22,6 +22,7 @@ from research_mode_corpus import (
 )
 from research_mode_lifecycle_helpers import clear_reviewable_candidate
 from research_mode_payloads import normalize_string_list
+from research_mode_queue import release_global_queue
 from research_mode_reasons import reason_for_control_action, set_history_reason
 from research_mode_registry import resolve_task_from_args
 from research_mode_reporting import refresh_task_playbook
@@ -313,6 +314,9 @@ def transition_command(
     manager = StateManager(task)
     action = args.action
     remove_job_id: str | None = None
+    stale_stop_release: dict[str, str | None] | None = None
+    task_id_for_queue_release: str | None = None
+    abandoned_run_id: str | None = None
     with manager.editor() as state:
         now = utc_now()
         status = state.get("status")
@@ -340,6 +344,7 @@ def transition_command(
             result_status = state["status"]
         elif action == "stop":
             if status == "running":
+                stale_running_cancelled = False
                 lock = state.get("lock") or {}
                 if lock.get("status") == "held":
                     from research_mode_lifecycle_helpers import (
@@ -348,9 +353,17 @@ def transition_command(
 
                     if check_stale_lock(state):
                         stale_run_id = lock.get("run_id")
+                        abandoned_run_id = str(stale_run_id) if stale_run_id else None
+                        stale_lease_token = lock.get("lease_token")
                         stale_iteration_index = int(lock.get("iteration_index") or 0)
                         state["status"] = "cancelled"
                         result_status = "cancelled"
+                        stale_running_cancelled = True
+                        stale_stop_release = {
+                            "run_id": stale_run_id,
+                            "lease_token": stale_lease_token,
+                        }
+                        task_id_for_queue_release = str(state.get("id") or task.task_dir.name)
                         state["control"]["stop_requested"] = False
                         state["lock"].update(
                             {
@@ -376,27 +389,9 @@ def transition_command(
                                 "reason": "stale_lock_on_stop",
                             }
                         )
-                        state.setdefault("history", {})["last_transition"] = action
-                        normalized_reason = set_history_reason(
-                            state,
-                            reason_for_control_action(
-                                action,
-                                previous_status=previous_status,
-                                result_status=result_status,
-                            ),
-                        )
-                        refresh_task_playbook(task)
-                        json_dump(
-                            {
-                                "status": result_status,
-                                "action": action,
-                                "normalized_reason": normalized_reason,
-                                "abandoned_run_id": stale_run_id,
-                            }
-                        )
-                        return 0
-                state["control"]["stop_requested"] = True
-                result_status = "stop-requested"
+                if not stale_running_cancelled:
+                    state["control"]["stop_requested"] = True
+                    result_status = "stop-requested"
             elif status in REVIEW_WAIT_STATUSES:
                 state["status"] = "cancelled"
                 result_status = "cancelled"
@@ -425,6 +420,15 @@ def transition_command(
         )
 
     refresh_task_playbook(task)
+    queue_release = None
+    if stale_stop_release is not None:
+        queue_release = release_global_queue(
+            task.task_dir.parent,
+            task_id=task_id_for_queue_release or task.task_dir.name,
+            run_id=stale_stop_release.get("run_id"),
+            lease_token=stale_stop_release.get("lease_token"),
+            released_by="stop",
+        )
     removal_payload = None
     if remove_job_id:
         removal_payload = remove_cron_job(remove_job_id)
@@ -439,6 +443,8 @@ def transition_command(
             "normalized_reason": normalized_reason,
             "removed_job_id": remove_job_id,
             "removal_payload": removal_payload,
+            "abandoned_run_id": abandoned_run_id,
+            "queue_release": queue_release,
         }
     )
     return 0

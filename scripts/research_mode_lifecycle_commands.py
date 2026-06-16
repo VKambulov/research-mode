@@ -44,6 +44,7 @@ from research_mode_reasons import (
     reason_for_finish,
     set_history_reason,
 )
+from research_mode_queue import acquire_global_queue, release_global_queue
 from research_mode_reporting import append_run_log, refresh_task_playbook
 from research_mode_runtime import (
     clear_bound_job,
@@ -296,6 +297,39 @@ def begin_iteration(args: argparse.Namespace) -> int:
 
         run_id = uuid.uuid4().hex[:12]
         lease_token = uuid.uuid4().hex
+        stale_timeout_min = int(state["lock"].get("stale_timeout_min") or 30)
+        queue_result = acquire_global_queue(
+            task.task_dir.parent,
+            task_id=state["id"],
+            task_path=task.task_dir,
+            run_id=run_id,
+            lease_token=lease_token,
+            stale_timeout_min=stale_timeout_min,
+            policy=getattr(args, "queue_policy", "global_iteration_lock"),
+        )
+        if not queue_result.get("acquired"):
+            queue = state.setdefault("queue", {})
+            queue["status"] = "waiting"
+            queue["waiting_since"] = queue.get("waiting_since") or now
+            queue["position"] = queue_result.get("position")
+            queue["blocked_by_task_id"] = queue_result.get("active_task_id")
+            queue["blocked_by_run_id"] = queue_result.get("active_run_id")
+            queue["active_task_id"] = queue_result.get("active_task_id")
+            queue["active_run_id"] = queue_result.get("active_run_id")
+            state["updated_at"] = now
+            state["history"]["last_transition"] = "begin:queued"
+            set_history_reason(state, queue_result.get("normalized_reason"))
+            json_dump(
+                {
+                    "status": "skipped",
+                    "reason": queue_result.get("reason"),
+                    "normalized_reason": queue_result.get("normalized_reason"),
+                    "active_task_id": queue_result.get("active_task_id"),
+                    "active_run_id": queue_result.get("active_run_id"),
+                    "queue_position": queue_result.get("position"),
+                }
+            )
+            return 0
         iteration_index = int(state["progress"].get("iteration_count") or 0) + 1
         state["status"] = "running"
         state["updated_at"] = now
@@ -310,6 +344,20 @@ def begin_iteration(args: argparse.Namespace) -> int:
             }
         )
         state["history"]["last_transition"] = "begin"
+        state.setdefault("queue", {}).update(
+            {
+                "status": "running"
+                if queue_result.get("status") != "disabled"
+                else "disabled",
+                "waiting_since": None,
+                "position": None,
+                "blocked_by_task_id": None,
+                "blocked_by_run_id": None,
+                "active_task_id": state["id"],
+                "active_run_id": run_id,
+                "last_acquired_at": now,
+            }
+        )
         work_order = make_work_order(state, task)
         if recovery_result:
             work_order["recovery_note"] = {
@@ -377,6 +425,8 @@ def finish_iteration(args: argparse.Namespace) -> int:
     payload = load_result_payload(Path(args.result_file).expanduser().resolve())
     manager = StateManager(task)
     remove_job_id: str | None = None
+    queue_release: dict[str, Any] | None = None
+    lease_token: str | None = None
     completion_validation: dict[str, Any] | None = None
     budget_phase_info: dict[str, Any] = {}
     saturation: dict[str, Any] = {}
@@ -401,6 +451,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
             raise ValidationError(
                 f"Active run id mismatch: expected {lock.get('run_id')}, got {args.run_id}"
             )
+        lease_token = lock.get("lease_token")
 
         now = utc_now()
         iteration_index = int(
@@ -756,6 +807,14 @@ def finish_iteration(args: argparse.Namespace) -> int:
                 "iteration_index": None,
             }
         )
+        state.setdefault("queue", {}).update(
+            {
+                "status": "free",
+                "active_task_id": None,
+                "active_run_id": None,
+                "last_released_at": now,
+            }
+        )
         if next_status == "paused":
             state["control"]["pause_requested"] = False
             suspend_bound_job(state, reason="paused", at=now)
@@ -800,6 +859,14 @@ def finish_iteration(args: argparse.Namespace) -> int:
             topic_saturated=bool(saturation.get("topic_saturated")),
             short_summary=payload["summary"],
         )
+
+    queue_release = release_global_queue(
+        task.task_dir.parent,
+        task_id=state["id"],
+        run_id=args.run_id,
+        lease_token=lease_token,
+        released_by="finish",
+    )
 
     budget_phase_info = compute_budget_phase(
         budget=state["budget"],
@@ -852,6 +919,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
             "total_runtime_min": budget_phase_info.get("total_runtime_min"),
             "reached_max_runtime": reached_max_runtime,
             "review_gated": next_status in REVIEW_WAIT_STATUSES,
+            "queue_release": queue_release,
         }
     )
     return 0
@@ -863,6 +931,8 @@ def fail_iteration(args: argparse.Namespace) -> int:
     )
     manager = StateManager(task)
     remove_job_id: str | None = None
+    queue_release: dict[str, Any] | None = None
+    lease_token: str | None = None
     with manager.editor() as state:
         lock = state.get("lock") or {}
         if state.get("status") != "running" or lock.get("status") != "held":
@@ -871,6 +941,7 @@ def fail_iteration(args: argparse.Namespace) -> int:
             raise ValidationError(
                 f"Active run id mismatch: expected {lock.get('run_id')}, got {args.run_id}"
             )
+        lease_token = lock.get("lease_token")
 
         now = utc_now()
         iteration_index = int(
@@ -940,6 +1011,14 @@ def fail_iteration(args: argparse.Namespace) -> int:
                 "iteration_index": None,
             }
         )
+        state.setdefault("queue", {}).update(
+            {
+                "status": "free",
+                "active_task_id": None,
+                "active_run_id": None,
+                "last_released_at": now,
+            }
+        )
         if next_status == "paused":
             state["control"]["pause_requested"] = False
             suspend_bound_job(state, reason="paused", at=now)
@@ -974,6 +1053,14 @@ def fail_iteration(args: argparse.Namespace) -> int:
             short_summary=f"Iteration failed: {error_message}",
         )
 
+    queue_release = release_global_queue(
+        task.task_dir.parent,
+        task_id=state["id"],
+        run_id=args.run_id,
+        lease_token=lease_token,
+        released_by="fail",
+    )
+
     removal_payload = None
     if remove_job_id:
         removal_payload = remove_cron_job(remove_job_id)
@@ -998,6 +1085,7 @@ def fail_iteration(args: argparse.Namespace) -> int:
             "consecutive_failures": state["errors"]["consecutive_failures"],
             "removed_job_id": remove_job_id,
             "removal_payload": removal_payload,
+            "queue_release": queue_release,
         }
     )
     return 0

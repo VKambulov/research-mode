@@ -144,6 +144,12 @@ A worker iteration is intentionally bounded:
 4. `finish` validates and commits the state transition.
 5. `fail` records errors when a leased iteration breaks.
 
+`begin` also participates in a root-global iteration queue. The queue serializes
+worker execution across tasks under the same research root, while still allowing
+multiple background tasks to be scheduled. If another task is already running,
+`begin` returns a deferred/skipped result and records waiter diagnostics instead
+of treating the cron tick as a failure.
+
 This prevents one long assistant session from becoming the only source of truth.
 
 ## Research Adequacy Gate
@@ -399,6 +405,12 @@ stateDiagram-v2
 3. Исполнитель пишет JSON-результат.
 4. `finish` проверяет результат и фиксирует переход состояния.
 5. `fail` фиксирует ошибку, если итерация с блокировкой сломалась.
+
+`begin` также участвует в общей очереди итераций на уровне research root. Очередь
+сериализует выполнение worker-итераций между задачами одного root, но не мешает
+планировать несколько фоновых задач. Если другая задача уже выполняется, `begin`
+возвращает deferred/skipped результат и записывает диагностические поля ожидания,
+а тик cron не считается ошибкой.
 
 Так одна длинная сессия ассистента не становится единственным источником
 правды.

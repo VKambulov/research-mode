@@ -362,6 +362,17 @@ def build_summary_payload(
             "attachments": (state.get("delivery") or {}).get("attachments") or [],
             "ready": bool((state.get("delivery") or {}).get("ready")),
         },
+        "queue": {
+            "status": (state.get("queue") or {}).get("status") or "free",
+            "waiting_since": (state.get("queue") or {}).get("waiting_since"),
+            "position": (state.get("queue") or {}).get("position"),
+            "blocked_by_task_id": (state.get("queue") or {}).get(
+                "blocked_by_task_id"
+            ),
+            "blocked_by_run_id": (state.get("queue") or {}).get("blocked_by_run_id"),
+            "active_task_id": (state.get("queue") or {}).get("active_task_id"),
+            "active_run_id": (state.get("queue") or {}).get("active_run_id"),
+        },
         "analysis": {
             "runtime_prepared": task.runtime_meta_path.exists(),
             "runtime_tool": runtime_meta.get("tool"),
@@ -511,6 +522,19 @@ def render_summary_text(summary: dict[str, Any]) -> str:
             age_str = f"{age:.1f}m"
             stale_str = " (STALE)" if stale else " (active)"
             lines.append(f"Lock: held {age_str}{stale_str}, timeout={timeout}m")
+    queue = summary.get("queue") or {}
+    if queue.get("status") == "waiting":
+        lines.append("Queue: waiting for global research worker")
+        if queue.get("blocked_by_task_id") or queue.get("blocked_by_run_id"):
+            lines.append(
+                f"Blocked by: {queue.get('blocked_by_task_id') or '-'} / {queue.get('blocked_by_run_id') or '-'}"
+            )
+        if queue.get("position"):
+            lines.append(f"Queue position: {queue.get('position')}")
+    elif queue.get("status") == "running":
+        lines.append(
+            f"Queue: running as {queue.get('active_task_id') or '-'} / {queue.get('active_run_id') or '-'}"
+        )
     lines.extend(
         [
             f"Phase: {summary['phase']}",
