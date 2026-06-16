@@ -469,6 +469,9 @@ def build_summary_payload(
                 "last_recovery_result_file"
             ),
             "last_recovery_at": (state.get("artifacts") or {}).get("last_recovery_at"),
+            "last_pending_result_file": (state.get("artifacts") or {}).get(
+                "last_pending_result_file"
+            ),
         },
         "lock": {
             "status": lock.get("status"),
@@ -871,6 +874,9 @@ def render_summary_text(summary: dict[str, Any]) -> str:
     recovery_note_path = artifacts.get("last_recovery_note_path")
     if recovery_note_path:
         lines.append(f"Recovery note: {recovery_note_path}")
+    pending_result_file = artifacts.get("last_pending_result_file")
+    if pending_result_file:
+        lines.append(f"Recovered pending result: {pending_result_file}")
     if artifacts.get("task_playbook_exists"):
         lines.append(f"Task playbook: {artifacts.get('task_playbook_path')}")
     if artifacts.get("runs_exists"):

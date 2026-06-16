@@ -31,6 +31,7 @@ from research_mode_lifecycle_commands import (
     begin_iteration,
     fail_iteration,
     finish_iteration,
+    recover_command,
 )
 from research_mode_query_commands import (
     draft_report_command,
@@ -232,6 +233,14 @@ def build_parser() -> argparse.ArgumentParser:
     finish.add_argument("--run-id", required=True)
     finish.add_argument("--result-file", required=True)
     finish.set_defaults(func=finish_iteration)
+
+    recover = subparsers.add_parser(
+        "recover", help="Recover a stale worker result", parents=[root_parent]
+    )
+    recover.add_argument("--id")
+    recover.add_argument("--path")
+    recover.add_argument("--apply-pending-result", action="store_true")
+    recover.set_defaults(func=recover_command)
 
     attach_input = subparsers.add_parser(
         "attach-input",

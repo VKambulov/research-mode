@@ -355,6 +355,15 @@ python3 scripts/research_mode.py fail \
   --error "what failed"
 ```
 
+If a worker wrote `.tmp/result-<run-id>.json` but crashed before `finish`,
+recover the pending result instead of starting another worker over it:
+
+```bash
+python3 scripts/research_mode.py recover \
+  --id <research-id> \
+  --apply-pending-result
+```
+
 Do not keep working indefinitely inside one lease. The system is designed around
 bounded iterations.
 

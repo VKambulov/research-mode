@@ -89,12 +89,15 @@ Checks:
 - `lock.run_id`;
 - lock age and stale timeout;
 - `transactions.finish.status`;
+- `.tmp/result-<run-id>.json`;
 - latest row in `runs.tsv`;
 - any recovery note under `workspace/`.
 
 Safe actions:
 
 - wait if the lease is fresh and a worker is still active;
+- if `.tmp/result-<run-id>.json` exists and the lock is stale, run
+  `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
 - use `fail` if the leased run is known to be broken and the run id is known;
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.

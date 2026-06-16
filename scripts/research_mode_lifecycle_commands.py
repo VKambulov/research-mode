@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,17 @@ def begin_iteration(args: argparse.Namespace) -> int:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
     )
+    initial_state = task.read_state()
+    initial_lock = initial_state.get("lock") or {}
+    if (
+        initial_state.get("status") == "running"
+        and stale_lock(initial_state)
+        and _pending_result_path(task, initial_lock).exists()
+    ):
+        recovery = recover_pending_result(task, apply_pending_result=True)
+        json_dump(recovery)
+        return 0
+
     manager = StateManager(task)
     recovery_result = None
     with manager.editor() as state:
@@ -418,7 +430,9 @@ def load_result_payload(path: Path) -> dict[str, Any]:
     }
 
 
-def finish_iteration(args: argparse.Namespace) -> int:
+def _finish_iteration_impl(
+    args: argparse.Namespace, *, emit: bool = True
+) -> tuple[int, dict[str, Any]]:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
     )
@@ -893,35 +907,235 @@ def finish_iteration(args: argparse.Namespace) -> int:
             final_report_path=saved_report_path,
         )
 
-    json_dump(
-        {
-            "status": next_status,
-            "normalized_reason": normalized_reason,
-            "notify_user": notify_user,
-            "update_text": update_text,
-            "owner": state.get("owner"),
-            "summary": payload["summary"],
-            "next_angle": payload["next_angle"],
-            "final_report_path": saved_report_path,
-            "iteration_count": state["progress"]["iteration_count"],
-            "append_metrics": append_metrics,
-            "topic_saturated": state.get("saturation", {}).get("topic_saturated"),
-            "consecutive_low_yield": state.get("saturation", {}).get(
-                "consecutive_low_yield"
-            ),
-            "completion_validation": completion_validation,
-            "finalization_validation": finalization_validation,
-            "removed_job_id": remove_job_id,
-            "removal_payload": removal_payload,
-            "budget_phase": budget_phase_info.get("phase"),
-            "budget_phase_detail": budget_phase_info,
-            "total_sources": total_sources,
-            "total_runtime_min": budget_phase_info.get("total_runtime_min"),
-            "reached_max_runtime": reached_max_runtime,
-            "review_gated": next_status in REVIEW_WAIT_STATUSES,
+    result = {
+        "status": next_status,
+        "normalized_reason": normalized_reason,
+        "notify_user": notify_user,
+        "update_text": update_text,
+        "owner": state.get("owner"),
+        "summary": payload["summary"],
+        "next_angle": payload["next_angle"],
+        "final_report_path": saved_report_path,
+        "iteration_count": state["progress"]["iteration_count"],
+        "append_metrics": append_metrics,
+        "topic_saturated": state.get("saturation", {}).get("topic_saturated"),
+        "consecutive_low_yield": state.get("saturation", {}).get(
+            "consecutive_low_yield"
+        ),
+        "completion_validation": completion_validation,
+        "finalization_validation": finalization_validation,
+        "removed_job_id": remove_job_id,
+        "removal_payload": removal_payload,
+        "budget_phase": budget_phase_info.get("phase"),
+        "budget_phase_detail": budget_phase_info,
+        "total_sources": total_sources,
+        "total_runtime_min": budget_phase_info.get("total_runtime_min"),
+        "reached_max_runtime": reached_max_runtime,
+        "review_gated": next_status in REVIEW_WAIT_STATUSES,
+        "queue_release": queue_release,
+    }
+    if emit:
+        json_dump(result)
+    return 0, result
+
+
+def finish_iteration(args: argparse.Namespace) -> int:
+    code, _result = _finish_iteration_impl(args, emit=True)
+    return code
+
+
+def _pending_result_path(task: ResearchTask, lock: dict[str, Any]) -> Path:
+    run_id = str(lock.get("run_id") or "")
+    return task.tmp_dir / f"result-{run_id}.json"
+
+
+def _consume_pending_result(result_file: Path) -> Path:
+    consumed_path = result_file.with_name(f"{result_file.name}.applied")
+    if consumed_path.exists():
+        consumed_path = result_file.with_name(f"{result_file.name}.{uuid.uuid4().hex[:8]}.applied")
+    shutil.move(str(result_file), str(consumed_path))
+    return consumed_path
+
+
+def _record_invalid_pending_result(
+    task: ResearchTask,
+    *,
+    run_id: str | None,
+    result_file: Path,
+    error: str,
+) -> dict[str, Any] | None:
+    queue_release = None
+    release_run_id: str | None = None
+    release_lease_token: str | None = None
+    release_task_id: str | None = None
+    with StateManager(task).editor() as state:
+        now = utc_now()
+        lock = state.get("lock") or {}
+        release_task_id = str(state.get("id") or task.task_dir.name)
+        matches_active_lock = (
+            state.get("status") == "running"
+            and lock.get("status") == "held"
+            and lock.get("run_id") == run_id
+        )
+        artifacts = state.setdefault("artifacts", {})
+        artifacts["pending_result_invalid_path"] = str(result_file)
+        artifacts["pending_result_invalid_error"] = error
+        artifacts["pending_result_invalid_at"] = now
+        state.setdefault("history", {}).setdefault("audit_trail", []).append(
+            {
+                "at": now,
+                "event": "pending_result_invalid",
+                "run_id": run_id,
+                "result_file": str(result_file),
+                "error": error,
+            }
+        )
+        if matches_active_lock and stale_lock(state):
+            release_run_id = str(lock.get("run_id") or "")
+            release_lease_token = str(lock.get("lease_token") or "")
+            state["status"] = "idle"
+            state["lock"].update(
+                {
+                    "status": "free",
+                    "run_id": None,
+                    "lease_token": NO_ACTIVE_LEASE,
+                    "started_at": None,
+                    "iteration_index": None,
+                }
+            )
+            state.setdefault("queue", {}).update(
+                {
+                    "status": "free",
+                    "active_task_id": None,
+                    "active_run_id": None,
+                    "last_released_at": now,
+                }
+            )
+            artifacts["abandoned_run_id"] = run_id
+            artifacts["abandoned_at"] = now
+            state["history"]["last_transition"] = "recover:pending_result_invalid"
+            set_history_reason(state, "recovery:pending_result_invalid")
+        state["updated_at"] = now
+
+    if release_run_id:
+        queue_release = release_global_queue(
+            task.task_dir.parent,
+            task_id=release_task_id or task.task_dir.name,
+            run_id=release_run_id,
+            lease_token=release_lease_token,
+            released_by="recover-invalid",
+        )
+    refresh_task_playbook(task)
+    return queue_release
+
+
+def recover_pending_result(
+    task: ResearchTask, *, apply_pending_result: bool
+) -> dict[str, Any]:
+    state = task.read_state()
+    lock = state.get("lock") or {}
+    run_id = str(lock.get("run_id") or "")
+    result_file = _pending_result_path(task, lock)
+    warnings: list[str] = []
+
+    if not apply_pending_result:
+        return {
+            "status": "blocked",
+            "run_id": run_id or None,
+            "warnings": ["recover requires --apply-pending-result"],
+        }
+    if state.get("status") in FINAL_STATUSES or state.get("status") in REVIEW_WAIT_STATUSES:
+        return {
+            "status": "blocked",
+            "run_id": run_id or None,
+            "warnings": [f"task status does not allow pending recovery: {state.get('status')}"],
+        }
+    if state.get("status") != "running" or lock.get("status") != "held" or not run_id:
+        return {
+            "status": "no_pending_result",
+            "run_id": run_id or None,
+            "warnings": ["no active run lock"],
+        }
+    if not result_file.exists():
+        return {
+            "status": "no_pending_result",
+            "run_id": run_id,
+            "applied_result_file": str(result_file),
+            "warnings": [],
+        }
+    if not stale_lock(state):
+        return {
+            "status": "blocked",
+            "run_id": run_id,
+            "applied_result_file": str(result_file),
+            "warnings": ["active run is not stale"],
+        }
+
+    try:
+        load_result_payload(result_file)
+    except ValidationError as exc:
+        warning = str(exc)
+        queue_release = _record_invalid_pending_result(
+            task,
+            run_id=run_id,
+            result_file=result_file,
+            error=warning,
+        )
+        return {
+            "status": "blocked",
+            "run_id": run_id,
+            "applied_result_file": str(result_file),
+            "consumed_result_file": None,
+            "finish_status": None,
+            "warnings": [warning],
             "queue_release": queue_release,
         }
+
+    finish_args = argparse.Namespace(
+        root=str(task.task_dir.parent),
+        id=state.get("id"),
+        path=None,
+        run_id=run_id,
+        result_file=str(result_file),
     )
+    _code, finish_result = _finish_iteration_impl(finish_args, emit=False)
+    consumed_path = _consume_pending_result(result_file)
+    with StateManager(task).editor() as updated_state:
+        now = utc_now()
+        updated_state.setdefault("artifacts", {})["last_pending_result_file"] = str(
+            consumed_path
+        )
+        updated_state.setdefault("history", {}).setdefault("audit_trail", []).append(
+            {
+                "at": now,
+                "event": "pending_result_applied",
+                "run_id": run_id,
+                "result_file": str(result_file),
+                "consumed_result_file": str(consumed_path),
+                "finish_status": finish_result.get("status"),
+            }
+        )
+        updated_state["updated_at"] = now
+    refresh_task_playbook(task)
+    return {
+        "status": "recovered",
+        "run_id": run_id,
+        "applied_result_file": str(result_file),
+        "consumed_result_file": str(consumed_path),
+        "finish_status": finish_result.get("status"),
+        "warnings": warnings,
+        "finish": finish_result,
+    }
+
+
+def recover_command(args: argparse.Namespace) -> int:
+    task = ResearchTask.from_args(
+        Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
+    )
+    result = recover_pending_result(
+        task, apply_pending_result=bool(args.apply_pending_result)
+    )
+    json_dump(result)
     return 0
 
 

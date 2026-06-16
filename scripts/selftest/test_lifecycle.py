@@ -337,16 +337,14 @@ def test_partial_progress_salvage(root: Path) -> None:
     state_path_c.write_text(json.dumps(state_c, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     recovered_c = json_out(run("begin", "--root", str(root), "--id", "task-salvage"))
-    assert_eq(recovered_c["status"], "leased", "stale recovery should get lease")
-    assert_in("recovery_note", recovered_c, "recovery should include recovery_note in work order")
-    recovery_note_info = recovered_c.get("recovery_note") or {}
-    assert_true(recovery_note_info.get("exists"), "recovery_note should exist")
-    assert_in("recovery-note-", recovery_note_info.get("path", ""), "recovery_note path should have recovery-note prefix")
+    assert_eq(recovered_c["status"], "recovered", "stale pending result should recover")
+    assert_eq(recovered_c["finish_status"], "idle", "pending recovery should use normal finish path")
+    assert_true(recovered_c.get("consumed_result_file"), "pending recovery should consume result file")
 
     state_after_c = json.loads(state_path_c.read_text(encoding="utf-8"))
-    assert_true((state_after_c.get("artifacts") or {}).get("last_recovery_note_path"), "state should have last_recovery_note_path")
-    assert_true((state_after_c.get("artifacts") or {}).get("last_recovery_run_id"), "state should have last_recovery_run_id")
-    assert_true((state_after_c.get("artifacts") or {}).get("last_recovery_at"), "state should have last_recovery_at")
+    assert_true((state_after_c.get("artifacts") or {}).get("last_pending_result_file"), "state should track consumed pending result")
+    audit_trail_c = state_after_c.get("history", {}).get("audit_trail", [])
+    assert_true(any(e.get("event") == "pending_result_applied" for e in audit_trail_c), "audit_trail should have pending_result_applied event")
 
     iteration_count_before = state_after_c["progress"]["iteration_count"]
     _lease_d2 = json_out(run("begin", "--root", str(root), "--id", "task-salvage"))
@@ -356,10 +354,7 @@ def test_partial_progress_salvage(root: Path) -> None:
 
     summary_c = json_out(run("summary", "--root", str(root), "--id", "task-salvage", "--format", "json"))
     artifacts_c = summary_c.get("artifacts") or {}
-    assert_true(artifacts_c.get("last_recovery_note_path"), "summary artifacts should show recovery note path")
-
-    summary_text_c = run("summary", "--root", str(root), "--id", "task-salvage", "--format", "text").stdout
-    assert_in("Recovery note:", summary_text_c, "summary text should show recovery note line")
+    assert_true(artifacts_c.get("last_pending_result_file"), "summary artifacts should show consumed pending result")
 
 
 def test_schedule_and_runtime(root: Path) -> None:

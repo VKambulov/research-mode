@@ -289,13 +289,14 @@ Do not collapse review state and delivery state:
 - `approve` or `mark-delivered --ready` is the normal route to delivery readiness.
 
 ### Integrity markers
-Successful `finish` writes `transactions.finish.status=committed` with the run id and iteration. Treat this as a diagnostic marker, not as a complete transaction journal. A fuller artifact/state recovery layer remains future work.
+Successful `finish` writes `transactions.finish.status=committed` with the run id and iteration. If a stale worker left `.tmp/result-<run-id>.json` without calling `finish`, use `recover --apply-pending-result`; valid results are applied through the normal finish path and then marked consumed.
 
 ## Execution discipline
 
 - One run = one bounded iteration.
 - Worker iterations are serialized per research root by the global iteration queue.
 - A `begin` response with `status=skipped` and `normalized_reason=deferred:global-research-lock` is normal queue waiting, not a failed worker turn.
+- A `begin` response with `status=recovered` means a stale pending result was applied; the next tick may acquire a fresh lease if more work remains.
 - Use `queue-status`, `status`, or `summary` to inspect the active holder and waiters before attempting recovery.
 - `state.json` remains the source of truth.
 - Research task ids must be safe single path segments; never use `/`, `\`, `.`, `..`, or path traversal in ids.
