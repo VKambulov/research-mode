@@ -73,6 +73,19 @@ DEPTH_PRESETS = {
 }
 
 
+def validate_owner_arguments(args: argparse.Namespace) -> None:
+    if not getattr(args, "no_owner", False):
+        return
+    conflicting = [
+        name
+        for name in ("channel", "chat_id", "thread_id", "topic_id")
+        if getattr(args, name, None)
+    ]
+    if conflicting:
+        flags = ", ".join("--" + name.replace("_", "-") for name in conflicting)
+        raise ResearchModeError(f"--no-owner cannot be combined with {flags}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Deterministic helper for long-running research workflows",
@@ -93,6 +106,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    def add_owner_arguments(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--channel", default=None, help="Owner channel for milestone messages"
+        )
+        command.add_argument("--chat-id", default=None, help="Owner chat target")
+        command.add_argument("--thread-id", default=None, help="Owner thread target")
+        command.add_argument("--topic-id", default=None, help="Owner topic target")
+        command.add_argument(
+            "--no-owner",
+            action="store_true",
+            help="Explicitly create the task without notification owner binding",
+        )
+
     create = subparsers.add_parser(
         "create", help="Create a new research task", parents=[root_parent]
     )
@@ -103,10 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--goal", required=True, help="Research goal")
     create.add_argument("--depth", default="M", choices=sorted(DEPTH_PRESETS.keys()))
     create.add_argument("--phase", default="search", choices=sorted(PHASES))
-    create.add_argument(
-        "--channel", default=None, help="Owner channel for milestone messages"
-    )
-    create.add_argument("--chat-id", default=None, help="Owner chat target")
+    add_owner_arguments(create)
     create.add_argument("--initial-angle", default=None, help="Seed next_angle")
     create.add_argument(
         "--open-question",
@@ -158,10 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--goal", required=True, help="Research goal")
     start.add_argument("--depth", default="M", choices=sorted(DEPTH_PRESETS.keys()))
     start.add_argument("--phase", default="search", choices=sorted(PHASES))
-    start.add_argument(
-        "--channel", default=None, help="Owner channel for milestone messages"
-    )
-    start.add_argument("--chat-id", default=None, help="Owner chat target")
+    add_owner_arguments(start)
     start.add_argument("--initial-angle", default=None, help="Seed next_angle")
     start.add_argument(
         "--open-question",
@@ -814,6 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def create_research(args: argparse.Namespace) -> int:
+    validate_owner_arguments(args)
     task, state, research_id = create_task_from_args(
         args, state_version=STATE_VERSION, depth_presets=DEPTH_PRESETS
     )
@@ -859,6 +880,7 @@ def schedule_job(args: argparse.Namespace) -> int:
 
 
 def start_research(args: argparse.Namespace) -> int:
+    validate_owner_arguments(args)
     if getattr(args, "dry_run", False):
         task, state, research_id = preview_task_from_args(
             args, state_version=STATE_VERSION, depth_presets=DEPTH_PRESETS

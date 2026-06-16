@@ -201,6 +201,7 @@ Send updates only when there is real value:
 Avoid a message on every cron tick.
 When helper output returns `notify_user=true`, prefer the returned `update_text` instead of inventing a fresh one.
 If the task runs under the default isolated cron setup with internal-only delivery, use `delivery_intent` as the handoff contract: send pending intent text through the available messaging surface, then call `record-notification` with `sent` or `failed`, and reply `NO_REPLY` in the cron run.
+For chat-launched tasks, bind the owner at `create` / `start` time with `--channel`, `--chat-id`, and when needed `--thread-id` / `--topic-id`. Use `--no-owner` only when notifications are intentionally disabled; otherwise a missing owner should remain visible as `notification_blocked:missing_owner`.
 
 ## Current hardened behavior
 

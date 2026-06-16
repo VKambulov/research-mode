@@ -177,6 +177,20 @@ Research Mode deliberately separates review from delivery.
 This separation prevents an unchecked draft, raw workspace artifact, or partial
 recovery note from being treated as the final user-facing result.
 
+#### Owner Binding And Delivery Intents
+
+When a chat or operator launch should receive milestone and review updates, bind
+the task owner at creation time with `--channel` and `--chat-id`. Use
+`--thread-id` or `--topic-id` when the messaging surface needs a thread or topic
+target. Use `--no-owner` only when notification delivery is intentionally
+disabled; this records an explicit disabled reason instead of looking like a
+forgotten owner target.
+
+Research Mode itself emits a serializable `delivery_intent`. Platform-specific
+wrappers should send the pending intent through their messaging surface, include
+`primary_file` and `attachments` when supported, and then call
+`record-notification --status sent` or `--status failed`.
+
 #### Research Adequacy Gate
 
 Before finalization, Research Mode runs a research adequacy gate. This checks

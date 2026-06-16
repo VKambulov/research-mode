@@ -1123,6 +1123,84 @@ def test_awaiting_review_finish_creates_delivery_intent(root: Path) -> None:
     )
 
 
+def test_create_owner_thread_topic_flow_into_delivery_intent(root: Path) -> None:
+    task_id = "awaiting-review-thread-topic-intent"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent with thread target",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+            "--thread-id",
+            "thread-456",
+            "--topic-id",
+            "topic-789",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    intent = finished.get("delivery_intent") or {}
+    target = intent.get("notification_target") or {}
+
+    assert_eq(intent.get("status"), "pending", "delivery intent should be pending")
+    assert_eq(target.get("channel"), "mattermost", "intent should include channel")
+    assert_eq(target.get("chat_id"), "channel-123", "intent should include chat id")
+    assert_eq(target.get("thread_id"), "thread-456", "intent should include thread id")
+    assert_eq(target.get("topic_id"), "topic-789", "intent should include topic id")
+
+
+def test_no_owner_is_explicit_and_conflicts_with_owner_target(root: Path) -> None:
+    task_id = "explicit-no-owner"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Explicitly disable owner delivery",
+            "--no-owner",
+        )
+    )
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    owner = state.get("owner") or {}
+    assert_eq(
+        owner.get("disabled_reason"),
+        "owner_disabled:explicit",
+        "--no-owner should preserve an explicit disabled reason",
+    )
+
+    failed = run(
+        "create",
+        "--root",
+        str(root),
+        "--id",
+        "conflicting-no-owner",
+        "--goal",
+        "Conflicting owner args",
+        "--no-owner",
+        "--channel",
+        "mattermost",
+        check=False,
+    )
+    assert_eq(failed.returncode, 2, "--no-owner with owner target should fail")
+    assert_in(
+        "--no-owner cannot be combined",
+        failed.stderr,
+        "error should explain owner argument conflict",
+    )
+
+
 def test_approve_from_awaiting_review_to_complete(root: Path) -> None:
     json_out(
         run(

@@ -440,6 +440,13 @@ def build_initial_state(
     if args.max_sources is not None:
         preset["max_sources"] = args.max_sources
 
+    no_owner = bool(getattr(args, "no_owner", False))
+    owner_channel = None if no_owner else args.channel
+    owner_chat_id = None if no_owner else args.chat_id
+    owner_thread_id = None if no_owner else getattr(args, "thread_id", None)
+    owner_topic_id = None if no_owner else getattr(args, "topic_id", None)
+    owner_disabled_reason = "owner_disabled:explicit" if no_owner else None
+
     return {
         "version": state_version,
         "id": args.id,
@@ -450,11 +457,11 @@ def build_initial_state(
         "created_at": now,
         "updated_at": now,
         "owner": {
-            "channel": args.channel,
-            "chat_id": args.chat_id,
-            "thread_id": getattr(args, "thread_id", None),
-            "topic_id": getattr(args, "topic_id", None),
-            "disabled_reason": None,
+            "channel": owner_channel,
+            "chat_id": owner_chat_id,
+            "thread_id": owner_thread_id,
+            "topic_id": owner_topic_id,
+            "disabled_reason": owner_disabled_reason,
         },
         "job": {
             "job_id": None,
