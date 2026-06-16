@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import posixpath
 import xml.etree.ElementTree as ET  # nosec B405
 import zipfile
 from pathlib import Path
@@ -442,6 +443,7 @@ def _inspect_xlsx_file(path: Path) -> dict[str, Any]:
                 if has_workbook
                 else []
             )
+            strict_reasons = _inspect_xlsx_strict_ooxml(workbook, sheet_files, names)
     except zipfile.BadZipFile:
         return {"format": "xlsx", "reasons": ["xlsx_candidate_not_openable"]}
     except (KeyError, ET.ParseError):
@@ -453,12 +455,102 @@ def _inspect_xlsx_file(path: Path) -> dict[str, Any]:
         reasons.append("xlsx_candidate_missing_sheets")
     if has_workbook and not sheet_names:
         reasons.append("xlsx_candidate_missing_sheet_names")
+    reasons.extend(strict_reasons)
     return {
         "format": "xlsx",
         "sheet_count": len(sheet_files),
         "sheet_names": sheet_names,
+        "strict_checks": {
+            "engine": "ooxml",
+            "libreoffice_roundtrip": "not_available",
+        },
         "reasons": reasons,
     }
+
+
+def _inspect_xlsx_strict_ooxml(
+    workbook: zipfile.ZipFile, sheet_files: list[str], names: set[str]
+) -> list[str]:
+    reasons: list[str] = []
+    rel_ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+    main_ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    office_rel_key = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+
+    for sheet_file in sheet_files:
+        try:
+            sheet_root = ET.fromstring(workbook.read(sheet_file))  # nosec B314
+        except (KeyError, ET.ParseError):
+            reasons.append("xlsx_candidate_invalid_worksheet_xml")
+            continue
+
+        worksheet_filters = {
+            str(elem.attrib.get("ref") or "").upper()
+            for elem in sheet_root.iter(f"{main_ns}autoFilter")
+            if elem.attrib.get("ref")
+        }
+        table_part_ids = [
+            str(elem.attrib.get(office_rel_key) or "").strip()
+            for elem in sheet_root.iter(f"{main_ns}tablePart")
+            if elem.attrib.get(office_rel_key)
+        ]
+        if not table_part_ids:
+            continue
+
+        rels_path = _worksheet_rels_path(sheet_file)
+        relationships: dict[str, str] = {}
+        if rels_path not in names:
+            reasons.append("xlsx_table_relationships_missing")
+        else:
+            try:
+                rels_root = ET.fromstring(workbook.read(rels_path))  # nosec B314
+            except ET.ParseError:
+                reasons.append("xlsx_table_relationships_invalid")
+            else:
+                for rel in rels_root.iter(f"{rel_ns}Relationship"):
+                    rel_id = str(rel.attrib.get("Id") or "")
+                    target = str(rel.attrib.get("Target") or "")
+                    if rel_id and target:
+                        relationships[rel_id] = target
+
+        for rel_id in table_part_ids:
+            target = relationships.get(rel_id)
+            if not target:
+                reasons.append("xlsx_table_relationship_missing")
+                continue
+            table_path = _resolve_ooxml_target(sheet_file, target)
+            if table_path not in names:
+                reasons.append("xlsx_table_part_missing")
+                continue
+            try:
+                table_root = ET.fromstring(workbook.read(table_path))  # nosec B314
+            except ET.ParseError:
+                reasons.append("xlsx_table_part_invalid")
+                continue
+            table_ref = str(table_root.attrib.get("ref") or "").upper()
+            table_filter_refs = {
+                str(elem.attrib.get("ref") or "").upper()
+                for elem in table_root.iter(f"{main_ns}autoFilter")
+                if elem.attrib.get("ref")
+            }
+            if not table_ref:
+                reasons.append("xlsx_table_ref_missing")
+            conflict_refs = {table_ref, *table_filter_refs} & worksheet_filters
+            if conflict_refs:
+                reasons.append("xlsx_conflicting_table_autofilter")
+
+    return list(dict.fromkeys(reasons))
+
+
+def _worksheet_rels_path(sheet_file: str) -> str:
+    directory, filename = sheet_file.rsplit("/", 1)
+    return f"{directory}/_rels/{filename}.rels"
+
+
+def _resolve_ooxml_target(source_file: str, target: str) -> str:
+    if target.startswith("/"):
+        return target.lstrip("/")
+    source_dir = source_file.rsplit("/", 1)[0]
+    return posixpath.normpath(posixpath.join(source_dir, target))
 
 
 def _read_xlsx_sheet_names(workbook_xml: bytes) -> list[str]:

@@ -302,6 +302,7 @@ Successful `finish` writes `transactions.finish.status=committed` with the run i
 - Research task ids must be safe single path segments; never use `/`, `\`, `.`, `..`, or path traversal in ids.
 - `--path` must point to a task under the selected `--root`; do not operate on arbitrary filesystem paths.
 - Review and delivery artifacts must live under the task directory. If an external file is relevant, attach/copy it into the task workspace first.
+- For XLSX deliverables, do not combine a worksheet-level `autoFilter` and an Excel Table over the same range. Use a table filter or a plain worksheet filter, not both; review-ready XLSX candidates are checked with strict OOXML compatibility validation.
 - Before changing the helper code, run or update tests first. Before calling code changes complete, run `scripts/check_research_mode.sh` from the package root.
 - Do not bypass path containment by symlink or absolute path. The helper validates resolved paths; if it rejects a path, move/copy the artifact into the task workspace.
 - Do not rely on chat memory between cron iterations.

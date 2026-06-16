@@ -205,6 +205,77 @@ def _write_minimal_xlsx(path: Path, *, sheet_name: str = "Сводка") -> None
         )
 
 
+def _write_conflicting_filter_xlsx(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as workbook:
+        workbook.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+</Types>
+""",
+        )
+        workbook.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>
+""",
+        )
+        workbook.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets>
+</workbook>
+""",
+        )
+        workbook.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>
+""",
+        )
+        workbook.writestr(
+            "xl/worksheets/sheet1.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetData>
+    <row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Value</t></is></c></row>
+    <row r="2"><c r="A2" t="inlineStr"><is><t>A</t></is></c><c r="B2"><v>1</v></c></row>
+  </sheetData>
+  <autoFilter ref="A1:B2"/>
+  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+</worksheet>
+""",
+        )
+        workbook.writestr(
+            "xl/worksheets/_rels/sheet1.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>
+""",
+        )
+        workbook.writestr(
+            "xl/tables/table1.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Table1" displayName="Table1" ref="A1:B2">
+  <autoFilter ref="A1:B2"/>
+  <tableColumns count="2"><tableColumn id="1" name="Name"/><tableColumn id="2" name="Value"/></tableColumns>
+</table>
+""",
+        )
+
+
 def test_initial_state_has_explicit_finalization_defaults(root: Path) -> None:
     json_out(
         run(
@@ -565,6 +636,45 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
         xlsx_artifact.get("sheet_names"),
         ["Сводка"],
         "XLSX inspection should expose sheet names",
+    )
+
+
+def test_worker_final_rejects_xlsx_table_autofilter_conflict(root: Path) -> None:
+    task_id = "xlsx-filter-conflict"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "XLSX filter conflict test",
+            "--deliverable",
+            "review-ready spreadsheet",
+        )
+    )
+    task_dir = root / task_id
+    _write_conflicting_filter_xlsx(task_dir / "reports" / "final.xlsx")
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "spreadsheet",
+        "candidate_artifacts": [
+            {
+                "path": "reports/final.xlsx",
+                "kind": "spreadsheet",
+                "note": "Review-ready workbook.",
+            }
+        ],
+    }
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+    assert_eq(finished.get("status"), "finalize", "conflicting XLSX should rework")
+    reasons = (finished.get("finalization_validation") or {}).get("reasons") or []
+    assert_in(
+        "xlsx_conflicting_table_autofilter",
+        reasons,
+        "conflicting worksheet/table filters should be rejected",
     )
 
 
