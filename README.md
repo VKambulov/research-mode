@@ -367,6 +367,12 @@ python3 scripts/research_mode.py recover \
 Do not keep working indefinitely inside one lease. The system is designed around
 bounded iterations.
 
+For multi-file deliverables, use a finalization candidate with
+`primary_deliverable_kind=package` and a `package` / `final_package` artifact under
+`workspace/outputs/<name>`. The package must have an entrypoint such as
+`README.md`, `index.md`, `final-report.md`, or an explicit `entrypoint`, and all
+files must resolve inside the task directory.
+
 #### Launch Mode 5: Scheduling Existing Tasks
 
 Use `schedule` when a task already exists and should receive recurring isolated

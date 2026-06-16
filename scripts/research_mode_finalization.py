@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from research_mode_utils import ValidationError, resolve_under_task
+from research_mode_utils import ValidationError, is_relative_to, resolve_under_task
 
 
 FINALIZATION_REQUIRED_TRACE_FIELDS = [
@@ -33,6 +33,9 @@ RAW_FINAL_ARTIFACT_SIGNALS = [
     "confidence",
     "active/unknown",
 ]
+
+PACKAGE_KINDS = {"package", "final_package"}
+PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
 
 
 def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
@@ -211,6 +214,7 @@ def inspect_candidate_artifacts(
     trace = finalization or {}
     candidate_artifacts = trace.get("candidate_artifacts") or []
     report_text = str(report_markdown or "").strip()
+    primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
 
     if not candidate_artifacts:
         return {
@@ -279,16 +283,16 @@ def inspect_candidate_artifacts(
             )
             continue
         if not resolved.is_file():
-            reasons.append("candidate_artifact_not_file")
-            checked.append(
-                {
-                    "path": artifact_path,
-                    "kind": artifact_kind,
-                    "exists": True,
-                    "inside_task": True,
-                    "is_file": False,
-                }
+            package_result = _inspect_package_candidate(
+                task_dir=task_dir,
+                resolved=resolved,
+                artifact=artifact,
+                artifact_path=artifact_path,
+                artifact_kind=artifact_kind,
+                primary_kind=primary_kind,
             )
+            checked.append(package_result)
+            reasons.extend(package_result.get("reasons") or [])
             continue
 
         file_result = _inspect_existing_file(resolved)
@@ -311,6 +315,81 @@ def inspect_candidate_artifacts(
         "reasons": deduped_reasons,
         "artifacts": checked,
         "mode": "candidate_artifacts",
+    }
+
+
+def _inspect_package_candidate(
+    *,
+    task_dir: Path,
+    resolved: Path,
+    artifact: dict[str, Any],
+    artifact_path: str,
+    artifact_kind: str,
+    primary_kind: str,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    outputs_dir = task_dir / "workspace" / "outputs"
+    if primary_kind != "package" or artifact_kind not in PACKAGE_KINDS:
+        reasons.append("candidate_artifact_not_file")
+    if not resolved.is_dir():
+        reasons.append("candidate_package_not_directory")
+    if not is_relative_to(resolved, outputs_dir):
+        reasons.append("candidate_package_not_under_outputs")
+
+    entrypoint_name = str(artifact.get("entrypoint") or "").strip()
+    entrypoint: Path | None = None
+    if entrypoint_name:
+        candidate = (resolved / entrypoint_name).resolve()
+        if is_relative_to(candidate, resolved) and candidate.is_file():
+            entrypoint = candidate
+        else:
+            reasons.append("candidate_package_entrypoint_missing")
+    else:
+        for name in PACKAGE_ENTRYPOINTS:
+            candidate = resolved / name
+            if candidate.is_file():
+                entrypoint = candidate.resolve()
+                break
+        if entrypoint is None:
+            reasons.append("candidate_package_entrypoint_missing")
+
+    attachments: list[str] = []
+    inspectable_files = 0
+    try:
+        package_items = list(resolved.rglob("*"))
+    except OSError:
+        package_items = []
+        reasons.append("candidate_package_unreadable")
+
+    for item in package_items:
+        try:
+            item_resolved = item.resolve()
+        except OSError:
+            reasons.append("candidate_package_unreadable")
+            continue
+        if not is_relative_to(item_resolved, task_dir):
+            reasons.append("candidate_package_symlink_escape")
+            continue
+        if item.is_file():
+            inspectable_files += 1
+            attachments.append(str(item_resolved))
+
+    if inspectable_files == 0:
+        reasons.append("candidate_package_empty")
+
+    return {
+        "path": artifact_path,
+        "kind": artifact_kind,
+        "exists": True,
+        "inside_task": True,
+        "is_file": False,
+        "is_directory": resolved.is_dir(),
+        "package_path": str(resolved),
+        "entrypoint_path": str(entrypoint) if entrypoint else None,
+        "attachments": attachments,
+        "file_count": inspectable_files,
+        "format": "package",
+        "reasons": list(dict.fromkeys(reasons)),
     }
 
 

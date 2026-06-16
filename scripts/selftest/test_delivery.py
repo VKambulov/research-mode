@@ -568,6 +568,124 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     )
 
 
+def test_worker_final_accepts_review_ready_output_package(root: Path) -> None:
+    task_id = "package-finalization"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a multi-file deliverable package.",
+            "--title",
+            "Package Finalization",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    package_dir = root / task_id / "workspace" / "outputs" / "repository-example"
+    package_dir.mkdir(parents=True)
+    (package_dir / "README.md").write_text(
+        "# Repository Example\n\nThis package is the final deliverable.\n",
+        encoding="utf-8",
+    )
+    (package_dir / "app.py").write_text("print('ready')\n", encoding="utf-8")
+    (package_dir / "manifest.json").write_text(
+        json.dumps({"entrypoint": "README.md", "files": ["README.md", "app.py"]})
+        + "\n",
+        encoding="utf-8",
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    payload = _final_payload(
+        {
+            **_HUMAN_READY_FINALIZATION,
+            "primary_deliverable_kind": "package",
+            "candidate_artifacts": [
+                {
+                    "path": "workspace/outputs/repository-example",
+                    "kind": "final_package",
+                    "entrypoint": "README.md",
+                    "note": "Review-ready package directory.",
+                }
+            ],
+            "validation_evidence": [
+                {
+                    "kind": "package_review",
+                    "summary": "Checked README entrypoint and package files.",
+                }
+            ],
+        }
+    )
+    payload["final_report_markdown"] = ""
+
+    finished = _finish_with_payload(root, task_id, lease, payload)
+    assert_eq(finished["status"], "awaiting_review", "package should reach review")
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    delivery = state.get("delivery") or {}
+    assert_true(delivery.get("review_ready"), "package should be review-ready")
+    assert_true(not delivery.get("ready"), "package should still require approval")
+    assert_eq(delivery.get("package_path"), str(package_dir), "delivery should track package path")
+    assert_eq(delivery.get("primary_file"), str(package_dir / "README.md"), "package README should be primary file")
+    assert_true(delivery.get("attachments"), "package should expose attachments")
+    reasons = [
+        reason
+        for finding in (state.get("finalization") or {}).get("last_validation_findings", [])
+        for reason in (finding.get("reasons") or [])
+    ]
+    assert_true(
+        "raw_artifact_exposed_as_final" not in reasons,
+        "package should not be treated as raw workspace",
+    )
+
+
+def test_worker_final_rejects_package_symlink_escape(root: Path) -> None:
+    task_id = "package-symlink-escape"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Reject unsafe package.",
+            "--title",
+            "Package Escape",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    package_dir = root / task_id / "workspace" / "outputs" / "unsafe-package"
+    package_dir.mkdir(parents=True)
+    (package_dir / "README.md").write_text("# Unsafe\n\nEscaping package.\n", encoding="utf-8")
+    (package_dir / "escape").symlink_to(root)
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    payload = _final_payload(
+        {
+            **_HUMAN_READY_FINALIZATION,
+            "primary_deliverable_kind": "package",
+            "candidate_artifacts": [
+                {
+                    "path": "workspace/outputs/unsafe-package",
+                    "kind": "final_package",
+                    "entrypoint": "README.md",
+                }
+            ],
+            "validation_evidence": [
+                {"kind": "package_review", "summary": "Package was inspected."}
+            ],
+        }
+    )
+    payload["final_report_markdown"] = ""
+
+    finished = _finish_with_payload(root, task_id, lease, payload)
+    assert_eq(finished["status"], "finalize", "unsafe package should stay in finalize")
+    reasons = (finished.get("finalization_validation") or {}).get("reasons") or []
+    assert_in("candidate_package_symlink_escape", reasons, "symlink escape should be rejected")
+
+
 def test_delivery_manifest_populated_on_completion(root: Path) -> None:
     json_out(
         run(

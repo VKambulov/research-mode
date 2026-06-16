@@ -764,10 +764,31 @@ def validate_candidate_final(
     if not artifact_check["passed"]:
         all_passed = False
 
-    deliverable_check = _check_deliverable_quality(report_markdown, deliverable_desc)
-    findings.append(deliverable_check)
-    if not deliverable_check["passed"]:
-        all_passed = False
+    primary_kind = str(
+        (payload.get("finalization") or {}).get("primary_deliverable_kind") or ""
+    ).strip().lower()
+    package_final = (
+        primary_kind == "package"
+        and artifact_check["passed"]
+        and any(
+            item.get("format") == "package"
+            for item in artifact_check.get("artifacts") or []
+        )
+    )
+
+    if package_final:
+        findings.append(
+            {
+                "check": "package_deliverable_quality",
+                "passed": True,
+                "reasons": [],
+            }
+        )
+    else:
+        deliverable_check = _check_deliverable_quality(report_markdown, deliverable_desc)
+        findings.append(deliverable_check)
+        if not deliverable_check["passed"]:
+            all_passed = False
 
     draft_check = _check_no_draft_artifacts(task, report_markdown)
     findings.append(draft_check)
@@ -836,13 +857,21 @@ def _check_finalization_trace(
 
     raw_blob_parts: list[str] = [primary_kind]
     for artifact in candidate_artifacts:
-        raw_blob_parts.extend(
-            [
-                str(artifact.get("path") or ""),
-                str(artifact.get("kind") or ""),
-                str(artifact.get("note") or ""),
-            ]
+        artifact_path = str(artifact.get("path") or "")
+        artifact_kind = str(artifact.get("kind") or "").strip().lower()
+        package_candidate = (
+            primary_kind == "package"
+            and artifact_kind in {"package", "final_package"}
+            and artifact_path.startswith("workspace/outputs/")
         )
+        if not package_candidate:
+            raw_blob_parts.extend(
+                [
+                    artifact_path,
+                    artifact_kind,
+                    str(artifact.get("note") or ""),
+                ]
+            )
     raw_blob = "\n".join(raw_blob_parts).lower()
     raw_signals = RAW_FINAL_ARTIFACT_SIGNALS
     if status == "passed" and any(signal in raw_blob for signal in raw_signals):

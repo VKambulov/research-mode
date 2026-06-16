@@ -107,6 +107,28 @@ def _run_v13_finalization_validation(
     }
 
 
+def _package_delivery_from_validation(
+    validation_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not validation_result or not validation_result.get("passed"):
+        return None
+    for finding in validation_result.get("findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            if artifact.get("format") != "package" or artifact.get("reasons"):
+                continue
+            package_path = artifact.get("package_path")
+            entrypoint_path = artifact.get("entrypoint_path")
+            if package_path and entrypoint_path:
+                return {
+                    "package_path": package_path,
+                    "primary_file": entrypoint_path,
+                    "attachments": artifact.get("attachments") or [],
+                }
+    return None
+
+
 def begin_iteration(args: argparse.Namespace) -> int:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
@@ -733,11 +755,30 @@ def _finish_iteration_impl(
                     )
 
                     if finalization_validation.get("passed"):
-                        atomic_text_write(task.final_report_path, str(report).rstrip() + "\n")
-                        saved_report_path = str(task.final_report_path)
-                        state["artifacts"]["final_report_path"] = saved_report_path
+                        package_delivery = _package_delivery_from_validation(
+                            finalization_validation
+                        )
+                        if package_delivery:
+                            saved_report_path = None
+                            state["artifacts"]["final_report_path"] = None
+                            state["delivery"]["package_path"] = package_delivery[
+                                "package_path"
+                            ]
+                            state["delivery"]["primary_file"] = package_delivery[
+                                "primary_file"
+                            ]
+                            state["delivery"]["attachments"] = package_delivery[
+                                "attachments"
+                            ]
+                        else:
+                            atomic_text_write(
+                                task.final_report_path,
+                                str(report).rstrip() + "\n",
+                            )
+                            saved_report_path = str(task.final_report_path)
+                            state["artifacts"]["final_report_path"] = saved_report_path
+                            state["delivery"]["primary_file"] = saved_report_path
                         finalization_state["status"] = "passed"
-                        state["delivery"]["primary_file"] = saved_report_path
                         state["delivery"]["review_ready"] = True
                         state["delivery"]["ready"] = False
                         next_status = "awaiting_review"
@@ -748,6 +789,7 @@ def _finish_iteration_impl(
                         state["revision_diff"] = revision_diff
                         revision_snap = {
                             "final_report_path": saved_report_path,
+                            "package_path": state["delivery"].get("package_path"),
                             "revision_count": int(
                                 state.get("review", {}).get("revision_count") or 0
                             ),
