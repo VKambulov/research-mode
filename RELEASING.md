@@ -42,6 +42,7 @@ Include in the public package:
 - `AGENTS.md`
 - `.gitignore`
 - `pyrightconfig.json`
+- `assets/`
 - `examples/`
 - `scripts/*.py`
 - `scripts/check_research_mode.sh`
@@ -164,6 +165,7 @@ Python-пакет, не самостоятельный демон, не разм
 - `AGENTS.md`
 - `.gitignore`
 - `pyrightconfig.json`
+- `assets/`
 - `examples/`
 - `scripts/*.py`
 - `scripts/check_research_mode.sh`

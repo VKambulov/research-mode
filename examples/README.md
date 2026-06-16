@@ -4,6 +4,50 @@ These examples are generated outputs from bounded Research Mode tasks. They are
 intended for repository review, regression checks, and demonstration of expected
 deliverable shapes.
 
+## How To Read These Examples
+
+Each directory is a public-safe snapshot of a completed or review-ready Research
+Mode task. Start with the human-facing output files, then inspect
+`research-trace/` if you want to understand how the task moved through
+iterations, evidence collection, verification, and finalization.
+
+The trace is intentionally not a raw task directory. It is a sanitized copy of
+state, runs, result payloads, iteration notes, source/finding logs, playbooks,
+and selected analysis artifacts that are useful for review without exposing
+private workspace paths or chat identifiers.
+
+## Showcase
+
+### `web-capture-evaluation/`
+
+This example demonstrates a safe web-to-Markdown capture workflow for agent
+research. It is useful if you want to inspect how Research Mode frames external
+web content as untrusted evidence, separates capture from analysis, and turns a
+workflow into a reviewable Markdown package.
+
+Start here:
+
+- `README.md` for the package overview.
+- `final-report.md` for the synthesized result.
+- `research-plan.md` for the step-by-step workflow.
+- `research-trace/` for task state, iterations, result payloads, and selected
+  verification artifacts.
+
+### `rag-eval-tooling-matrix/`
+
+This example demonstrates a source-backed decision package for choosing RAG and
+LLM application evaluation tooling. It includes Markdown notes, a validation
+report, public evidence links, and a non-trivial XLSX workbook.
+
+Start here:
+
+- `README.md` for the package overview.
+- `final-report.md` for the recommendation.
+- `rag-eval-tooling-matrix.xlsx` for the scoring workbook.
+- `validation-report.md` for workbook checks.
+- `research-trace/` for task state, iterations, result payloads, source/finding
+  logs, and selected analysis artifacts.
+
 ## Available Examples
 
 - `web-capture-evaluation/` - five-file Markdown package for safe

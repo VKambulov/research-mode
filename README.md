@@ -2,6 +2,12 @@
 
 [English](#english) | [Русский](#русский)
 
+[![CI](https://img.shields.io/github/actions/workflow/status/VKambulov/research-mode/ci.yml?branch=main&label=CI)](https://github.com/VKambulov/research-mode/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/VKambulov/research-mode?label=release)](https://github.com/VKambulov/research-mode/releases)
+[![License](https://img.shields.io/github/license/VKambulov/research-mode)](LICENSE)
+![OpenClaw skill](https://img.shields.io/badge/OpenClaw-skill-2f6fed)
+![Review gated](https://img.shields.io/badge/review-gated-0f766e)
+
 `research-mode` is an OpenClaw cron-based skill for durable background research:
 bounded isolated iterations, persistent task state, review-gated finalization, and
 inspectable artifacts.
@@ -14,6 +20,50 @@ This project was originally created for a personal OpenClaw workflow and is
 published for people who want to study, adapt, or run a similar setup. It is
 provided as-is, without any warranty or promise that it will fit every OpenClaw
 installation without local adjustment.
+
+## At A Glance
+
+Research Mode is for questions that are too large for one chat response and too
+important to leave as an unreviewed draft. It gives an OpenClaw agent a durable,
+local-first research loop: scheduled worker turns collect evidence, write
+artifacts, verify adequacy, and stop at a human review gate before anything is
+treated as final.
+
+It is built for operators and agent builders who care about auditability:
+sources, findings, iterations, state transitions, and final deliverables remain
+inspectable on disk. The repository includes public examples with sanitized
+research traces so reviewers can see how real tasks move from request to
+review-ready package.
+
+```mermaid
+flowchart LR
+    Request[Chat research request] --> Schedule[OpenClaw cron schedule]
+    Schedule --> Iterations[Bounded worker iterations]
+    Iterations --> Evidence[Sources, findings, notes]
+    Evidence --> Adequacy[Research adequacy gate]
+    Adequacy --> Package[Review-ready package]
+    Package --> Review[Human review]
+    Review --> Delivery[Approved delivery]
+```
+
+### Why It Stands Out
+
+- Durable task state instead of one long fragile session.
+- Bounded cron iterations instead of unbounded background work.
+- Local artifact trail for sources, findings, runs, and final reports.
+- Review-gated finalization so raw workspace output is not mistaken for the
+  user-facing result.
+- Public examples that include sanitized `research-trace/` directories.
+
+### Showcase
+
+- `examples/web-capture-evaluation/` demonstrates safe web-to-Markdown capture
+  as a reviewable research package.
+- `examples/rag-eval-tooling-matrix/` demonstrates a source-backed RAG
+  evaluation tooling matrix with Markdown reports, validation notes, and an XLSX
+  workbook.
+
+See `examples/README.md` for a guided tour of the outputs and traces.
 
 ## English
 
@@ -40,7 +90,7 @@ loads skills from.
 
 ```bash
 export OPENCLAW_SKILLS_DIR="/path/to/your/openclaw/skills"
-git clone https://github.com/<owner>/research-mode.git "$OPENCLAW_SKILLS_DIR/research-mode"
+git clone https://github.com/VKambulov/research-mode.git "$OPENCLAW_SKILLS_DIR/research-mode"
 openclaw skills check
 ```
 
@@ -724,7 +774,7 @@ Research Mode не подходит для быстрых одноразовых
 
 ```bash
 export OPENCLAW_SKILLS_DIR="/path/to/your/openclaw/skills"
-git clone https://github.com/<owner>/research-mode.git "$OPENCLAW_SKILLS_DIR/research-mode"
+git clone https://github.com/VKambulov/research-mode.git "$OPENCLAW_SKILLS_DIR/research-mode"
 openclaw skills check
 ```
 
