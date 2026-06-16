@@ -6,6 +6,57 @@ License: Apache License, Version 2.0.
 
 ## English
 
+### v0.2.0
+
+`research-mode` v0.2.0 is a reliability release for long-running research
+tasks, especially tasks that run under cron, recover from interrupted worker
+turns, and produce review-ready file deliverables.
+
+### Highlights
+
+- Added a research adequacy gate before finalization, so tasks verify whether
+  accumulated evidence actually answers the goal before producing a final
+  deliverable.
+- Added a root-local fair worker queue for cron iterations, including stale
+  holder/waiter cleanup and compatibility defaults for older `state.json`
+  files.
+- Added pending result recovery for worker turns that wrote a result file but
+  did not reach `finish`.
+- Added review-ready package deliverables with explicit entrypoints,
+  attachments, manifest handling, and task-directory containment checks.
+- Added delivery intents as the public handoff contract for platform-specific
+  notification adapters.
+- Added `record-notification` so delivery counters are updated only after a
+  notification is confirmed as sent.
+- Added owner binding fields for chat-launched tasks, including optional
+  `thread_id` / `topic_id` and explicit `--no-owner`.
+- Added stricter XLSX compatibility validation, including detection of
+  worksheet `autoFilter` and Excel Table conflicts on the same range.
+- Hardened URL capture, approval/delivery file handling, task path handling,
+  and runtime prompts as part of the same reliability line.
+- Updated GitHub Actions to current action versions and removed ineffective
+  cache configuration without a lockfile.
+
+### Migration notes
+
+- Existing task state is normalized lazily when read; older tasks should not
+  require manual migration.
+- Platform-specific notification sending is still intentionally outside the
+  public skill package. The public contract is `delivery_intent` plus
+  `record-notification`.
+- `awaiting_review` still means "ready for human review", not "already
+  delivered".
+
+### Required release checks
+
+Run from the repository or package root:
+
+```bash
+scripts/check_research_mode.sh
+uvx --from bandit bandit -q -r scripts -x scripts/selftest
+detect-secrets scan --all-files --exclude-files '(^|/)\.(pytest|ruff)_cache/'
+```
+
 ### v0.1.0
 
 `research-mode` is an **OpenClaw cron-based skill** for durable background
@@ -62,6 +113,56 @@ git diff --stat
 Before publishing, confirm `LICENSE` is included in the public package.
 
 ## Русский
+
+### v0.2.0
+
+`research-mode` v0.2.0 — релиз надёжности для длительных исследований,
+особенно для задач, которые идут через cron, восстанавливаются после
+прерванных рабочих итераций и готовят файлы для проверки человеком.
+
+### Главное
+
+- Добавлена проверка достаточности исследования перед финализацией: задача
+  сначала проверяет, отвечает ли накопленная доказательная база цели.
+- Добавлена честная очередь рабочих итераций на уровне корня исследований,
+  включая очистку устаревших holder/waiter записей и совместимость со старыми
+  `state.json`.
+- Добавлено восстановление pending result для случаев, когда рабочая итерация
+  успела записать result-файл, но не дошла до `finish`.
+- Добавлены review-ready package deliverables: явный entrypoint, attachments,
+  manifest и проверки, что файлы не выходят за пределы директории задачи.
+- Добавлен `delivery_intent` как публичный контракт передачи уведомлений в
+  platform-specific адаптеры.
+- Добавлена команда `record-notification`: счётчики доставки обновляются
+  только после подтверждённой отправки уведомления.
+- Добавлена привязка owner для задач, запущенных из чата, включая опциональные
+  `thread_id` / `topic_id` и явный `--no-owner`.
+- Добавлена более строгая XLSX-проверка совместимости, включая конфликт
+  worksheet `autoFilter` и Excel Table на одном диапазоне.
+- Усилены URL capture, обработка approval/delivery файлов, проверка путей задач
+  и runtime prompts в рамках той же линии надёжности.
+- GitHub Actions обновлены на актуальные версии actions; удалён неэффективный
+  cache без lockfile.
+
+### Заметки по миграции
+
+- Старое состояние задач нормализуется лениво при чтении; ручная миграция
+  старых задач не должна требоваться.
+- Отправка уведомлений через конкретную платформу по-прежнему намеренно
+  находится вне публичного пакета skill. Публичный контракт — `delivery_intent`
+  плюс `record-notification`.
+- `awaiting_review` по-прежнему означает "готово к проверке человеком", а не
+  "уже доставлено".
+
+### Обязательные проверки релиза
+
+Из корня репозитория:
+
+```bash
+scripts/check_research_mode.sh
+uvx --from bandit bandit -q -r scripts -x scripts/selftest
+detect-secrets scan --all-files --exclude-files '(^|/)\.(pytest|ruff)_cache/'
+```
 
 ### v0.1.0
 
