@@ -176,7 +176,7 @@ def _prune_waiters(
         try:
             state = read_json(task_path / "state.json")
         except Exception:
-            continue
+            state = {}
         if state.get("status") in {"awaiting_review", "complete", "failed", "cancelled"}:
             continue
         pruned.append(waiter)
