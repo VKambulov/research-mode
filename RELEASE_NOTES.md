@@ -10,6 +10,17 @@ License: Apache License, Version 2.0.
 
 - No changes yet.
 
+### v0.2.3 - 2026-06-16
+
+- Documented ClawHub installation and the ClawHub text-only package boundary:
+  binary files such as the social preview PNG and the RAG evaluation XLSX
+  workbook are available from GitHub, but not from `clawhub install`.
+- Clarified the distribution-license boundary: the GitHub source repository is
+  Apache-2.0, while ClawHub registry skill packages use the ClawHub platform
+  skill license.
+- Made the documentation smoke check compatible with text-only ClawHub installs
+  where binary presentation/example assets are absent.
+
 ### v0.2.2 - 2026-06-16
 
 - Added public examples under `examples/`, including a safe web-to-Markdown
@@ -148,6 +159,17 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ### Unreleased
 
 - Изменений пока нет.
+
+### v0.2.3 - 2026-06-16
+
+- Документирована установка через ClawHub и text-only граница ClawHub package:
+  бинарные файлы вроде social preview PNG и RAG evaluation XLSX workbook
+  доступны из GitHub, но не из `clawhub install`.
+- Уточнена граница лицензирования дистрибуции: GitHub source repository
+  распространяется под Apache-2.0, а ClawHub registry skill packages используют
+  платформенную лицензию ClawHub для skills.
+- Docs smoke теперь совместим с text-only ClawHub installs, где бинарные
+  презентационные/example assets отсутствуют.
 
 ### v0.2.2 - 2026-06-16
 

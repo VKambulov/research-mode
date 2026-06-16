@@ -31,7 +31,7 @@ REQUIRED_DOC_PATHS = [
     SKILL_DIR / "assets" / "README.md",
 ]
 
-REQUIRED_ASSET_PATHS = [
+OPTIONAL_ASSET_PATHS = [
     SKILL_DIR / "assets" / "social-preview.png",
 ]
 
@@ -67,6 +67,8 @@ REQUIRED_SNIPPETS = {
         "OpenClaw cron architecture",
         "### Installation",
         "### Установка",
+        "clawhub install research-mode",
+        "ClawHub skill installs are text-only",
         "### User Guide",
         "### Руководство пользователя",
         "#### How A Task Is Started",
@@ -110,6 +112,7 @@ REQUIRED_SNIPPETS = {
         "Команды ревью и доставки",
         "Quality Gates",
         "Проверки качества",
+        "bash scripts/check_research_mode.sh",
         "`attach-url-as-md` accepts only `http://` and `https://` URLs and blocks local",
         "including redirect targets",
         "attach-url-as-md` принимает только URL с `http://` и `https://` и блокирует",
@@ -192,6 +195,7 @@ REQUIRED_SNIPPETS = {
         "AGENTS.md",
         "examples/",
         "assets/",
+        "ClawHub skill publishing currently uploads text-like files only",
         "Apache License, Version 2.0",
     ],
     "examples/README.md": [
@@ -200,6 +204,7 @@ REQUIRED_SNIPPETS = {
         "rag-eval-tooling-matrix/",
         "research-trace/",
         "Showcase",
+        "ClawHub installs only text-like files",
         "sanitized copy",
         "private workspace paths",
         "chat identifiers",
@@ -208,6 +213,7 @@ REQUIRED_SNIPPETS = {
         "Research Mode Assets",
         "social-preview.png",
         "1280x640 GitHub social preview image",
+        "ClawHub skill installs are text-only",
         "generated visual background",
         "deterministic text",
     ],
@@ -418,12 +424,10 @@ def _validate_documented_bash_blocks(docs: dict[Path, str]) -> list[str]:
     return errors
 
 
-def _validate_required_assets() -> list[str]:
+def _validate_optional_assets() -> list[str]:
     errors: list[str] = []
-    for path in REQUIRED_ASSET_PATHS:
-        if not path.exists():
-            errors.append(f"missing documented asset: {_relative(path)}")
-        elif path.stat().st_size == 0:
+    for path in OPTIONAL_ASSET_PATHS:
+        if path.exists() and path.stat().st_size == 0:
             errors.append(f"documented asset is empty: {_relative(path)}")
     return errors
 
@@ -435,7 +439,7 @@ def main() -> int:
         *_validate_required_snippets(docs),
         *_validate_documented_commands(docs),
         *_validate_documented_bash_blocks(docs),
-        *_validate_required_assets(),
+        *_validate_optional_assets(),
     ]
     if errors:
         for error in errors:

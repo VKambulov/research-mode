@@ -65,6 +65,12 @@ flowchart LR
 
 See `examples/README.md` for a guided tour of the outputs and traces.
 
+Note: ClawHub skill installs are text-only. The GitHub repository and GitHub
+releases include binary presentation/example files such as
+`assets/social-preview.png` and
+`examples/rag-eval-tooling-matrix/rag-eval-tooling-matrix.xlsx`; those binary
+files are not included when installing through `clawhub install`.
+
 ## English
 
 ### What this is
@@ -82,6 +88,13 @@ Do not use it for one-shot lookups, quick summaries, ordinary coding tasks, or
 anything that does not need durable state and scheduled continuation.
 
 ### Installation
+
+Quick install from ClawHub:
+
+```bash
+clawhub install research-mode
+openclaw skills check
+```
 
 Install it as an OpenClaw skill by cloning this repository directly into your
 OpenClaw skills directory. The workspace folder name is installation-specific;
@@ -644,6 +657,13 @@ Release and behavior gate:
 scripts/check_research_mode.sh
 ```
 
+If the skill was installed from ClawHub and the shell script is not executable
+in your environment, run the same gate explicitly through `bash`:
+
+```bash
+bash scripts/check_research_mode.sh
+```
+
 The full gate runs compile checks, linting, documentation smoke, release smoke,
 type checks, the selftest runner, and pytest-compatible tests.
 
@@ -753,6 +773,11 @@ License: Apache License, Version 2.0. See `LICENSE`.
 ограниченные запуски через cron, состояние задачи на диске, проверка результата
 перед выдачей пользователю и артефакты, которые можно посмотреть.
 
+Важно: установка через ClawHub содержит только текстовые файлы. Бинарные
+файлы витрины и примеров, например `assets/social-preview.png` и
+`examples/rag-eval-tooling-matrix/rag-eval-tooling-matrix.xlsx`, доступны в
+GitHub-репозитории и GitHub releases, но не попадают в `clawhub install`.
+
 Research Mode подходит для задач, которые должны жить дольше одного ответа:
 
 - исследование в фоне несколько часов или дней;
@@ -766,6 +791,13 @@ Research Mode не подходит для быстрых одноразовых
 результата.
 
 ### Установка
+
+Быстрая установка из ClawHub:
+
+```bash
+clawhub install research-mode
+openclaw skills check
+```
 
 Установка выполняется как OpenClaw skill: репозиторий клонируется прямо в
 директорию skills. Название рабочей папки зависит от конкретной установки;
@@ -1308,6 +1340,13 @@ python3 scripts/check_research_mode_docs.py
 
 ```bash
 scripts/check_research_mode.sh
+```
+
+Если skill установлен из ClawHub и shell script в вашей среде не исполняемый,
+запустите тот же gate явно через `bash`:
+
+```bash
+bash scripts/check_research_mode.sh
 ```
 
 Полная проверка запускает compile checks, linting, docs smoke, release smoke,

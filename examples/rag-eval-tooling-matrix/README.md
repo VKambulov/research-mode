@@ -4,7 +4,7 @@ This example package compares current RAG and LLM application evaluation tooling
 
 ## Included files
 
-- `rag-eval-tooling-matrix.xlsx` - Excel workbook with Summary, Tool Matrix, Scoring, Evidence Sources, Exclusions Caveats, and Methodology sheets.
+- `rag-eval-tooling-matrix.xlsx` - Excel workbook with Summary, Tool Matrix, Scoring, Evidence Sources, Exclusions Caveats, and Methodology sheets. This binary workbook is included in the GitHub checkout/release package, but not in text-only ClawHub installs.
 - `final-report.md` - human-readable analysis and recommendation notes.
 - `sources.md` - public evidence index used by the workbook.
 - `validation-report.md` - workbook structure and compatibility checks from generation time.

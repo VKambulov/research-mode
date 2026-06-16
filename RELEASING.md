@@ -48,6 +48,13 @@ Include in the public package:
 - `scripts/check_research_mode.sh`
 - `scripts/selftest/`
 
+ClawHub skill publishing currently uploads text-like files only. Binary
+repository assets such as `assets/social-preview.png` and example `.xlsx`
+workbooks remain available through the GitHub repository and GitHub releases,
+but are not present in `clawhub install` outputs. ClawHub also applies its
+platform skill license to the registry package; the GitHub source repository is
+licensed under Apache License, Version 2.0.
+
 Exclude from the public package:
 
 - `research/` task roots and runtime task directories;
@@ -170,6 +177,13 @@ Python-пакет, не самостоятельный демон, не разм
 - `scripts/*.py`
 - `scripts/check_research_mode.sh`
 - `scripts/selftest/`
+
+ClawHub сейчас публикует skill-пакеты только как набор text-like файлов.
+Бинарные файлы репозитория, например `assets/social-preview.png` и example
+`.xlsx` workbooks, остаются доступными через GitHub repository и GitHub
+releases, но не попадают в результат `clawhub install`. ClawHub также применяет
+к registry package свою платформенную лицензию для skills; исходный GitHub
+repository лицензирован под Apache License, Version 2.0.
 
 Исключать из публичного пакета:
 

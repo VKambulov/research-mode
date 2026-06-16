@@ -39,11 +39,18 @@ This example demonstrates a source-backed decision package for choosing RAG and
 LLM application evaluation tooling. It includes Markdown notes, a validation
 report, public evidence links, and a non-trivial XLSX workbook.
 
+ClawHub installs only text-like files from skill packages. If you installed
+Research Mode through `clawhub install`, the Markdown reports, sources,
+validation notes, and sanitized trace are present, but the XLSX workbook is not.
+Use the GitHub repository or GitHub release package when you need
+`rag-eval-tooling-matrix.xlsx`.
+
 Start here:
 
 - `README.md` for the package overview.
 - `final-report.md` for the recommendation.
-- `rag-eval-tooling-matrix.xlsx` for the scoring workbook.
+- `rag-eval-tooling-matrix.xlsx` for the scoring workbook in the GitHub
+  checkout/release package.
 - `validation-report.md` for workbook checks.
 - `research-trace/` for task state, iterations, result payloads, source/finding
   logs, and selected analysis artifacts.
