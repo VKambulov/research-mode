@@ -4,7 +4,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/VKambulov/research-mode/ci.yml?branch=main&label=CI)](https://github.com/VKambulov/research-mode/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/VKambulov/research-mode?label=release)](https://github.com/VKambulov/research-mode/releases)
-[![License](https://img.shields.io/github/license/VKambulov/research-mode)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![OpenClaw skill](https://img.shields.io/badge/OpenClaw-skill-2f6fed)
 ![Review gated](https://img.shields.io/badge/review-gated-0f766e)
 

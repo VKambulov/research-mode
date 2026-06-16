@@ -2,6 +2,6 @@
 
 This directory contains public repository presentation assets.
 
-- `social-preview.svg` is a source asset for a GitHub social preview or release
-  card. If GitHub requires a raster upload, export it to PNG before uploading in
-  repository settings.
+- `social-preview.png` is a 1280x640 GitHub social preview image. It uses a
+  generated visual background with deterministic text and layout applied
+  locally, so the title, badges, and workflow labels remain readable.

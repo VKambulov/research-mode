@@ -22,7 +22,7 @@ License: Apache License, Version 2.0.
   the main README.
 - Improved the GitHub-facing repository presentation with README badges, an
   at-a-glance overview, a lifecycle diagram, stronger examples showcase text,
-  and a social preview source asset.
+  a generated PNG social preview, and a static Apache-2.0 license badge.
 
 ### v0.2.1
 
@@ -156,7 +156,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
 - Добавлено docs smoke покрытие для `examples/README.md` и ссылки на examples в
   основном README.
 - Улучшена GitHub-витрина репозитория: badges в README, короткое описание,
-  lifecycle-диаграмма, более сильное описание examples и исходник social preview.
+  lifecycle-диаграмма, более сильное описание examples, сгенерированный PNG
+  social preview и статический badge лицензии Apache-2.0.
 
 ### v0.2.1
 

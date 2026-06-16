@@ -28,6 +28,11 @@ REQUIRED_DOC_PATHS = [
     SKILL_DIR / "SECURITY.md",
     SKILL_DIR / "AGENTS.md",
     SKILL_DIR / "examples" / "README.md",
+    SKILL_DIR / "assets" / "README.md",
+]
+
+REQUIRED_ASSET_PATHS = [
+    SKILL_DIR / "assets" / "social-preview.png",
 ]
 
 OPTIONAL_DOC_PATHS: list[Path] = []
@@ -198,6 +203,13 @@ REQUIRED_SNIPPETS = {
         "sanitized copy",
         "private workspace paths",
         "chat identifiers",
+    ],
+    "assets/README.md": [
+        "Research Mode Assets",
+        "social-preview.png",
+        "1280x640 GitHub social preview image",
+        "generated visual background",
+        "deterministic text",
     ],
     "RELEASE_NOTES.md": [
         "[English](#english) | [Русский](#русский)",
@@ -406,6 +418,16 @@ def _validate_documented_bash_blocks(docs: dict[Path, str]) -> list[str]:
     return errors
 
 
+def _validate_required_assets() -> list[str]:
+    errors: list[str] = []
+    for path in REQUIRED_ASSET_PATHS:
+        if not path.exists():
+            errors.append(f"missing documented asset: {_relative(path)}")
+        elif path.stat().st_size == 0:
+            errors.append(f"documented asset is empty: {_relative(path)}")
+    return errors
+
+
 def main() -> int:
     docs = _read_docs()
     errors = [
@@ -413,6 +435,7 @@ def main() -> int:
         *_validate_required_snippets(docs),
         *_validate_documented_commands(docs),
         *_validate_documented_bash_blocks(docs),
+        *_validate_required_assets(),
     ]
     if errors:
         for error in errors:
