@@ -25,6 +25,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: false
 
       - name: Run release gate
         run: scripts/check_research_mode.sh
