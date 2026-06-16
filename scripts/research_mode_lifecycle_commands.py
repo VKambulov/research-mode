@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import shutil
 import uuid
 from pathlib import Path
@@ -127,6 +128,88 @@ def _package_delivery_from_validation(
                     "attachments": artifact.get("attachments") or [],
                 }
     return None
+
+
+def _delivery_intent_id(
+    *,
+    task_id: str,
+    run_id: str,
+    transition: str,
+    target: dict[str, Any],
+) -> str:
+    raw = "|".join(
+        [
+            task_id,
+            run_id,
+            transition,
+            str(target.get("channel") or ""),
+            str(target.get("chat_id") or ""),
+            str(target.get("thread_id") or ""),
+            str(target.get("topic_id") or ""),
+        ]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _upsert_delivery_intent(
+    state: dict[str, Any],
+    *,
+    run_id: str,
+    transition: str,
+    update_text: str | None,
+    primary_file: str | None,
+    attachments: list[Any] | None = None,
+) -> dict[str, Any]:
+    now = utc_now()
+    owner = state.get("owner") or {}
+    target = {
+        "channel": owner.get("channel"),
+        "chat_id": owner.get("chat_id"),
+        "thread_id": owner.get("thread_id"),
+        "topic_id": owner.get("topic_id"),
+    }
+    missing_owner = not target.get("channel") or not target.get("chat_id")
+    intent_id = _delivery_intent_id(
+        task_id=str(state.get("id") or ""),
+        run_id=run_id,
+        transition=transition,
+        target=target,
+    )
+    status = "blocked" if missing_owner else "pending"
+    blocked_reason = "notification_blocked:missing_owner" if missing_owner else None
+    intent = {
+        "id": intent_id,
+        "status": status,
+        "run_id": run_id,
+        "transition": transition,
+        "created_at": now,
+        "updated_at": now,
+        "notification_target": target,
+        "update_text": update_text,
+        "primary_file": primary_file,
+        "attachments": attachments or [],
+        "blocked_reason": blocked_reason,
+        "error": None,
+    }
+    intents = state.setdefault("delivery_intents", [])
+    for existing in intents:
+        if existing.get("id") == intent_id:
+            existing_status = existing.get("status") or status
+            existing.update(
+                {
+                    **intent,
+                    "status": existing_status,
+                    "created_at": existing.get("created_at") or now,
+                    "sent_at": existing.get("sent_at"),
+                    "error": existing.get("error"),
+                }
+            )
+            intent = existing
+            break
+    else:
+        intents.append(intent)
+    state.setdefault("delivery", {})["notification_blocked"] = blocked_reason
+    return dict(intent)
 
 
 def begin_iteration(args: argparse.Namespace) -> int:
@@ -463,6 +546,8 @@ def _finish_iteration_impl(
     remove_job_id: str | None = None
     queue_release: dict[str, Any] | None = None
     lease_token: str | None = None
+    update_text: str | None = None
+    delivery_intent: dict[str, Any] | None = None
     completion_validation: dict[str, Any] | None = None
     budget_phase_info: dict[str, Any] = {}
     saturation: dict[str, Any] = {}
@@ -473,6 +558,8 @@ def _finish_iteration_impl(
     pre_edit_revision_snap = task.read_state().get("revision_snapshot") or {}
     normalized_reason: str | None = None
     notify_user: bool = False
+    update_text: str | None = None
+    delivery_intent: dict[str, Any] | None = None
     append_metrics: dict[str, int] = {}
     saved_report_path: str | None = None
     finalization_validation: dict[str, Any] | None = None
@@ -893,10 +980,21 @@ def _finish_iteration_impl(
 
         notify_user = should_notify(state, payload, next_status)
         if notify_user:
-            state["delivery"]["sent_updates"] = (
-                int(state["delivery"].get("sent_updates") or 0) + 1
+            update_text = compose_finish_update_text(
+                state,
+                payload,
+                next_status,
+                iteration_count=state["progress"]["iteration_count"],
+                final_report_path=saved_report_path,
             )
-            state["delivery"]["last_update_at"] = now
+            delivery_intent = _upsert_delivery_intent(
+                state,
+                run_id=args.run_id,
+                transition=f"finish:{next_status}",
+                update_text=update_text,
+                primary_file=state.get("delivery", {}).get("primary_file"),
+                attachments=state.get("delivery", {}).get("attachments") or [],
+            )
 
         append_run_log(
             task,
@@ -939,21 +1037,12 @@ def _finish_iteration_impl(
         )
 
     refresh_task_playbook(task)
-    update_text = None
-    if notify_user:
-        update_text = compose_finish_update_text(
-            state,
-            payload,
-            next_status,
-            iteration_count=state["progress"]["iteration_count"],
-            final_report_path=saved_report_path,
-        )
-
     result = {
         "status": next_status,
         "normalized_reason": normalized_reason,
         "notify_user": notify_user,
         "update_text": update_text,
+        "delivery_intent": delivery_intent,
         "owner": state.get("owner"),
         "summary": payload["summary"],
         "next_angle": payload["next_angle"],
@@ -1181,6 +1270,71 @@ def recover_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def record_notification_command(args: argparse.Namespace) -> int:
+    task = ResearchTask.from_args(
+        Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
+    )
+    target_status = str(args.status)
+    intent_id = str(args.delivery_intent_id)
+    result: dict[str, Any] | None = None
+    with StateManager(task).editor() as state:
+        now = utc_now()
+        intents = state.setdefault("delivery_intents", [])
+        intent = next(
+            (item for item in intents if item.get("id") == intent_id),
+            None,
+        )
+        if intent is None:
+            raise ValidationError(f"Unknown delivery intent: {intent_id}")
+
+        previous_status = str(intent.get("status") or "pending")
+        if previous_status == "sent" and target_status == "failed":
+            raise ValidationError("Cannot mark a sent delivery intent as failed")
+
+        sent_incremented = False
+        if target_status == "sent":
+            if previous_status != "sent":
+                delivery = state.setdefault("delivery", {})
+                delivery["sent_updates"] = int(delivery.get("sent_updates") or 0) + 1
+                delivery["last_update_at"] = now
+                sent_incremented = True
+            intent["status"] = "sent"
+            intent["sent_at"] = intent.get("sent_at") or now
+            intent["error"] = None
+        elif target_status == "failed":
+            intent["status"] = "failed"
+            intent["failed_at"] = now
+            intent["error"] = str(args.error or "").strip() or "delivery failed"
+        else:
+            raise ValidationError(f"Unsupported notification status: {target_status}")
+
+        intent["updated_at"] = now
+        state["updated_at"] = now
+        state.setdefault("history", {}).setdefault("audit_trail", []).append(
+            {
+                "at": now,
+                "event": "delivery_intent_recorded",
+                "delivery_intent_id": intent_id,
+                "previous_status": previous_status,
+                "status": intent["status"],
+                "sent_incremented": sent_incremented,
+            }
+        )
+        result = {
+            "status": intent["status"],
+            "delivery_intent_id": intent_id,
+            "previous_status": previous_status,
+            "sent_incremented": sent_incremented,
+            "sent_updates": int(
+                state.setdefault("delivery", {}).get("sent_updates") or 0
+            ),
+        }
+
+    refresh_task_playbook(task)
+    json_dump(result or {})
+    return 0
+
+
 def fail_iteration(args: argparse.Namespace) -> int:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
@@ -1189,6 +1343,8 @@ def fail_iteration(args: argparse.Namespace) -> int:
     remove_job_id: str | None = None
     queue_release: dict[str, Any] | None = None
     lease_token: str | None = None
+    update_text: str | None = None
+    delivery_intent: dict[str, Any] | None = None
     with manager.editor() as state:
         lock = state.get("lock") or {}
         if state.get("status") != "running" or lock.get("status") != "held":
@@ -1286,10 +1442,15 @@ def fail_iteration(args: argparse.Namespace) -> int:
             args.requires_user_input or next_status in {"failed", "cancelled"}
         )
         if notify_user:
-            state["delivery"]["sent_updates"] = (
-                int(state["delivery"].get("sent_updates") or 0) + 1
+            update_text = compose_failure_update_text(state, error_message, next_status)
+            delivery_intent = _upsert_delivery_intent(
+                state,
+                run_id=args.run_id,
+                transition=f"fail:{next_status}",
+                update_text=update_text,
+                primary_file=state.get("delivery", {}).get("primary_file"),
+                attachments=state.get("delivery", {}).get("attachments") or [],
             )
-            state["delivery"]["last_update_at"] = now
 
         append_run_log(
             task,
@@ -1325,16 +1486,13 @@ def fail_iteration(args: argparse.Namespace) -> int:
         )
 
     refresh_task_playbook(task)
-    update_text = None
-    if notify_user:
-        update_text = compose_failure_update_text(state, error_message, next_status)
-
     json_dump(
         {
             "status": next_status,
             "normalized_reason": normalized_reason,
             "notify_user": notify_user,
             "update_text": update_text,
+            "delivery_intent": delivery_intent,
             "owner": state.get("owner"),
             "error": error_message,
             "failure_count": state["errors"]["failure_count"],

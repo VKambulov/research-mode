@@ -519,10 +519,12 @@ def render_worker_prompt_text(
            }}
         6. Finalize with: python3 {script} finish --root {root_arg} --id {task_id} --run-id <run_id_from_begin> --result-file <paths.result_file>
         7. This cron worker is scheduled with internal-only delivery (`--no-deliver`). A normal assistant reply will NOT reach the human.
-           - If finish/fail returns notify_user=true, send update_text via the message tool using:
-             {{"action":"send","channel":owner.channel,"target":owner.chat_id,"message":update_text}}
-           - Use exactly one proactive send for that update, then reply exactly NO_REPLY so the internal run stays quiet.
-           - If notify_user=false, reply exactly NO_REPLY.
+           - If finish/fail returns delivery_intent.status="pending", send delivery_intent.update_text via the available messaging surface to delivery_intent.notification_target.
+           - Include delivery_intent.primary_file / attachments when the messaging surface supports safe file delivery.
+           - After a successful send, run: python3 {script} record-notification --root {root_arg} --id {task_id} --delivery-intent-id <delivery_intent.id> --status sent
+           - If sending fails, run: python3 {script} record-notification --root {root_arg} --id {task_id} --delivery-intent-id <delivery_intent.id> --status failed --error "<short reason>"
+           - If delivery_intent.status="blocked", do not pretend it was sent; leave the blocked state visible and reply exactly NO_REPLY.
+           - If there is no pending delivery_intent, reply exactly NO_REPLY.
         8. On any error after leasing a run, call: python3 {script} fail --root {root_arg} --id {task_id} --run-id <run_id_from_begin> --error "..." [--requires-user-input]
 
         Rules:
@@ -543,7 +545,7 @@ def render_worker_prompt_text(
         - Before finalization, use phase=verify to decide whether the research itself is sufficient. If it is not sufficient, set result.adequacy.status to the appropriate rework status and recommend search, analyze, or synthesize.
         - Set result.adequacy.status='passed' only when the accumulated evidence is sufficient for the user's goal and explicit constraints.
         - In phase=finalize, focus on packaging a human-reviewable result; do not use finalization to hide unresolved research gaps.
-        - Never assume a plain reply is user-visible in this cron context; use the message tool when notify_user=true.
+        - Never assume a plain reply is user-visible in this cron context; use delivery_intent + record-notification for user-visible updates.
         - When there is nothing to send, reply NO_REPLY.
         """
         ).strip()

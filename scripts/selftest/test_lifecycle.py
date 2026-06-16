@@ -366,7 +366,8 @@ def test_schedule_and_runtime(root: Path) -> None:
     assert_true(dry["command"][:3] == ["openclaw", "cron", "add"], "schedule should build cron add command")
     assert_in("--no-deliver", dry["command"], "schedule should keep cron delivery internal by default")
     prompt = run("render-prompt", "--root", str(root), "--id", "task-sched").stdout
-    assert_in("message tool", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
+    assert_in("delivery_intent", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
+    assert_in("record-notification", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
     assert_in("--no-deliver", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
     assert_in("prepare-runtime", prompt, "worker prompt should mention task-local runtime preparation")
     assert_in("paths.venv_dir", prompt, "worker prompt should tell workers to use the task-local venv Python")

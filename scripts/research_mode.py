@@ -31,6 +31,7 @@ from research_mode_lifecycle_commands import (
     begin_iteration,
     fail_iteration,
     finish_iteration,
+    record_notification_command,
     recover_command,
 )
 from research_mode_query_commands import (
@@ -241,6 +242,18 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument("--path")
     recover.add_argument("--apply-pending-result", action="store_true")
     recover.set_defaults(func=recover_command)
+
+    record_notification = subparsers.add_parser(
+        "record-notification",
+        help="Record delivery status for a delivery intent",
+        parents=[root_parent],
+    )
+    record_notification.add_argument("--id")
+    record_notification.add_argument("--path")
+    record_notification.add_argument("--delivery-intent-id", required=True)
+    record_notification.add_argument("--status", required=True, choices=["sent", "failed"])
+    record_notification.add_argument("--error", default=None)
+    record_notification.set_defaults(func=record_notification_command)
 
     attach_input = subparsers.add_parser(
         "attach-input",

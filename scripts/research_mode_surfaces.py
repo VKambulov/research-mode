@@ -361,6 +361,10 @@ def build_summary_payload(
             "primary_file": (state.get("delivery") or {}).get("primary_file"),
             "attachments": (state.get("delivery") or {}).get("attachments") or [],
             "ready": bool((state.get("delivery") or {}).get("ready")),
+            "notification_blocked": (state.get("delivery") or {}).get(
+                "notification_blocked"
+            ),
+            "intents": state.get("delivery_intents") or [],
         },
         "queue": {
             "status": (state.get("queue") or {}).get("status") or "free",

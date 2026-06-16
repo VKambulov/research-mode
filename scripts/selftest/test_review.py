@@ -1042,6 +1042,87 @@ def test_awaiting_review_finish_emits_review_update_text(root: Path) -> None:
     )
 
 
+def test_awaiting_review_finish_creates_delivery_intent(root: Path) -> None:
+    task_id = "awaiting-review-delivery-intent"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    assert_eq(finished["status"], "awaiting_review", "task should await review")
+    intent = finished.get("delivery_intent") or {}
+    assert_eq(intent.get("status"), "pending", "delivery intent should be pending")
+    assert_true(intent.get("id"), "delivery intent should have stable id")
+    assert_eq(
+        (intent.get("notification_target") or {}).get("chat_id"),
+        "channel-123",
+        "intent should include notification target",
+    )
+    assert_true(intent.get("primary_file"), "intent should include primary file")
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("delivery", {}).get("sent_updates"),
+        0,
+        "creating an intent must not count as sent",
+    )
+
+    recorded = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "sent",
+        )
+    )
+    assert_eq(recorded["status"], "sent", "recording send should mark intent sent")
+    state_after = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state_after.get("delivery", {}).get("sent_updates"),
+        1,
+        "sent_updates should increment only after sent record",
+    )
+
+    recorded_again = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "sent",
+        )
+    )
+    assert_eq(recorded_again["status"], "sent", "sent -> sent should be no-op")
+    state_again = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state_again.get("delivery", {}).get("sent_updates"),
+        1,
+        "sent -> sent should not double-count",
+    )
+
+
 def test_approve_from_awaiting_review_to_complete(root: Path) -> None:
     json_out(
         run(
