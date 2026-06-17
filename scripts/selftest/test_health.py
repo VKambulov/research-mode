@@ -251,6 +251,52 @@ def test_health_blocks_fresh_pending_result_until_run_is_stale(root: Path) -> No
     )
 
 
+def test_health_recommends_fresh_continuation_for_stale_run_without_result(
+    root: Path,
+) -> None:
+    task_id = "health-stale-no-result"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should recommend a fresh continuation for abandoned stale runs",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    result_file = Path(lease["paths"]["result_file"])
+    assert_true(not result_file.exists(), "test setup should not create a result file")
+    _age_lock(root, task_id)
+    state_path = root / task_id / "state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate stale run state")
+    assert_eq(
+        health["status"],
+        "fresh_continuation_recommended",
+        "stale run without result should recommend fresh continuation",
+    )
+    assert_true(
+        any(
+            finding.get("code") == "stale_run_without_pending_result"
+            for finding in health["findings"]
+        ),
+        "health should expose stale_run_without_pending_result",
+    )
+    assert_true(
+        any(action.get("command") == "begin" for action in health["recommended_actions"]),
+        "health should recommend a fresh begin continuation",
+    )
+
+
 def test_reconcile_is_read_only_health_alias(root: Path) -> None:
     task_id = "reconcile-alias"
     json_out(

@@ -65,9 +65,9 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    lock = state.get("lock") or {}
     pending_result = _pending_result_file(task.task_dir, state)
     if pending_result is not None:
-        lock = state.get("lock") or {}
         pending_details = {
             "result_file": str(pending_result),
             "run_id": lock.get("run_id"),
@@ -160,6 +160,33 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
                         ],
                     }
                 )
+    elif (
+        state.get("status") == "running"
+        and lock.get("status") == "held"
+        and lock.get("run_id")
+        and stale_lock(state)
+    ):
+        findings.append(
+            {
+                "code": "stale_run_without_pending_result",
+                "severity": "warning",
+                "status": "fresh_continuation_recommended",
+                "message": "The active run is stale and has no pending worker result to recover.",
+                "details": {
+                    "run_id": lock.get("run_id"),
+                    "task_status": state.get("status"),
+                    "lock_status": lock.get("status"),
+                    "stale": True,
+                },
+            }
+        )
+        recommended_actions.append(
+            {
+                "kind": "fresh_continuation",
+                "command": "begin",
+                "note": "Start a fresh continuation from saved state; begin will abandon the stale run and take a new lease.",
+            }
+        )
 
     statuses = {str(finding.get("status") or "") for finding in findings}
     if "manual_review_needed" in statuses:
@@ -168,6 +195,8 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
         status = "blocked"
     elif "repair_needed" in statuses:
         status = "repair_needed"
+    elif "fresh_continuation_recommended" in statuses:
+        status = "fresh_continuation_recommended"
     else:
         status = "ok"
 

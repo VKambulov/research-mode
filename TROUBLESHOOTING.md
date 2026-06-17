@@ -24,6 +24,9 @@ before repair or resume when task state and artifacts may disagree.
 `reconcile` is the same read-only diagnostic surface. `repair_needed` means a
 valid stale pending worker result can be applied explicitly; `blocked` means
 the operator should wait or gather more context before changing state.
+`fresh_continuation_recommended` means the saved task state is usable, but the
+stale run has no pending result to recover, so the next safe step is a fresh
+`begin`.
 
 Then inspect task-local surfaces:
 
@@ -112,6 +115,9 @@ Safe actions:
 - wait if the lease is fresh and a worker is still active;
 - if `.tmp/result-<run-id>.json` exists and the lock is stale, run
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- if `health` reports `fresh_continuation_recommended`, run
+  `python3 scripts/research_mode.py begin --id <research-id>` to start from the
+  saved state and abandon the stale run;
 - if `health` reports `missing_task_playbook`, run
   `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - if `health` reports `invalid_pending_result`, keep the pending file for bug
@@ -379,7 +385,9 @@ artifacts могли разойтись.
 `reconcile` — такой же read-only диагностический интерфейс. `repair_needed`
 означает, что валидный stale pending worker result можно применить явно;
 `blocked` означает, что оператору нужно подождать или собрать больше контекста
-до изменения state.
+до изменения state. `fresh_continuation_recommended` означает, что сохранённый
+state пригоден, но stale run не оставил pending result для recovery, поэтому
+следующий безопасный шаг — свежий `begin`.
 
 Затем проверяются файлы внутри задачи:
 
@@ -469,6 +477,9 @@ python3 scripts/research_mode.py stop --id <research-id>
 - подождать, если lease свежий и worker ещё работает;
 - если `.tmp/result-<run-id>.json` существует и блокировка stale, запустить
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- если `health` сообщает `fresh_continuation_recommended`, запустить
+  `python3 scripts/research_mode.py begin --id <research-id>`, чтобы продолжить
+  от сохранённого state и abandon stale run;
 - если `health` сообщает `missing_task_playbook`, запустить
   `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - если `health` сообщает `invalid_pending_result`, сохранить pending-файл как
