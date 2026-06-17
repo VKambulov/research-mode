@@ -138,6 +138,59 @@ def test_recover_pending_result_applies_once(root: Path) -> None:
     assert_eq(_jsonl_count(root / task_id / "findings.jsonl"), 1, "finding should not duplicate")
 
 
+def test_recover_blocks_invalid_run_id_pending_result_path(root: Path) -> None:
+    task_id = "pending-result-invalid-run-id"
+    _create_and_begin(root, task_id)
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["lock"]["run_id"] = "../../../outside/loot"
+    state["lock"]["started_at"] = "2020-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    before = state_path.read_text(encoding="utf-8")
+    outside_result = root / "outside" / "loot.json"
+    outside_result.parent.mkdir(parents=True, exist_ok=True)
+    outside_result.write_text(
+        json.dumps(
+            {
+                "summary": "Injected external worker result.",
+                "next_angle": "This should not be applied.",
+                "meaningful_progress": True,
+                "phase": "analyze",
+                "notify_recommendation": "silent",
+                "should_complete": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    recovered = json_out(
+        run(
+            "recover",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--apply-pending-result",
+        )
+    )
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(recovered["status"], "blocked", "invalid run id should block recovery")
+    assert_true(recovered.get("warnings"), "blocked recovery should explain invalid run id")
+    assert_eq(after, before, "invalid run id recovery should not mutate state")
+    assert_true(outside_result.exists(), "outside result should not be moved")
+    assert_true(
+        not outside_result.with_name(f"{outside_result.name}.applied").exists(),
+        "outside result should not be consumed",
+    )
+
+
 def test_begin_applies_valid_stale_pending_result(root: Path) -> None:
     task_id = "begin-recovers-pending"
     lease = _create_and_begin(root, task_id)

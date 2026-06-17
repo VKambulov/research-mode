@@ -9,7 +9,7 @@ from research_mode_lifecycle_commands import load_result_payload
 from research_mode_lifecycle_helpers import stale_lock
 from research_mode_registry import resolve_task_from_args
 from research_mode_surfaces import build_summary_payload
-from research_mode_utils import ValidationError, json_dump
+from research_mode_utils import ValidationError, json_dump, pending_result_path
 
 
 def _pending_result_file(task_dir: Path, state: dict[str, Any]) -> Path | None:
@@ -17,7 +17,7 @@ def _pending_result_file(task_dir: Path, state: dict[str, Any]) -> Path | None:
     run_id = lock.get("run_id")
     if not run_id:
         return None
-    candidate = task_dir / ".tmp" / f"result-{run_id}.json"
+    candidate = pending_result_path(task_dir / ".tmp", run_id)
     return candidate if candidate.exists() else None
 
 
@@ -66,7 +66,29 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
         )
 
     lock = state.get("lock") or {}
-    pending_result = _pending_result_file(task.task_dir, state)
+    try:
+        pending_result = _pending_result_file(task.task_dir, state)
+    except ValidationError as exc:
+        pending_result = None
+        findings.append(
+            {
+                "code": "invalid_run_id",
+                "severity": "error",
+                "status": "manual_review_needed",
+                "message": "The task lock run_id is invalid.",
+                "details": {
+                    "run_id": lock.get("run_id"),
+                    "error": str(exc),
+                },
+            }
+        )
+        recommended_actions.append(
+            {
+                "kind": "manual_review",
+                "warning_code": "invalid_run_id",
+                "note": "Inspect state.json before recovery; health will not resolve a pending-result path for an invalid run_id.",
+            }
+        )
     if pending_result is not None:
         pending_details = {
             "result_file": str(pending_result),

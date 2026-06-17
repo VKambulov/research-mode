@@ -216,6 +216,50 @@ def test_health_reports_invalid_stale_pending_result_as_manual_review(root: Path
     )
 
 
+def test_health_reports_invalid_run_id_without_following_pending_path(root: Path) -> None:
+    task_id = "health-invalid-run-id"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should reject traversal-shaped run ids",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    json_out(run("begin", "--root", str(root), "--id", task_id))
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["lock"]["run_id"] = "../../../outside/loot"
+    state["lock"]["started_at"] = "2020-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    outside_result = root / "outside" / "loot.json"
+    outside_result.parent.mkdir(parents=True, exist_ok=True)
+    outside_result.write_text("{}", encoding="utf-8")
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate invalid run id state")
+    assert_eq(health["status"], "manual_review_needed", "invalid run id health status")
+    assert_true(
+        any(finding.get("code") == "invalid_run_id" for finding in health["findings"]),
+        "health should expose invalid_run_id",
+    )
+    assert_true(
+        not any(action.get("command") == "recover --apply-pending-result" for action in health["recommended_actions"]),
+        "health should not recommend pending-result repair for invalid run id",
+    )
+
+
 def test_health_blocks_fresh_pending_result_until_run_is_stale(root: Path) -> None:
     task_id = "health-fresh-pending"
     json_out(

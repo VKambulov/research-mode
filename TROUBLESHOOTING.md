@@ -122,6 +122,8 @@ Safe actions:
   `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - if `health` reports `invalid_pending_result`, keep the pending file for bug
   context and inspect manually before running recovery;
+- if `health` reports `invalid_run_id`, inspect `state.json` manually; recovery
+  will not follow a pending-result path derived from an invalid run id;
 - use `fail` if the leased run is known to be broken and the run id is known;
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.
@@ -484,6 +486,9 @@ python3 scripts/research_mode.py stop --id <research-id>
   `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - если `health` сообщает `invalid_pending_result`, сохранить pending-файл как
   контекст для bug report и проверить вручную до recovery;
+- если `health` сообщает `invalid_run_id`, вручную проверить `state.json`;
+  recovery не будет использовать pending-result path, построенный из
+  невалидного run id;
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
 - не запускать ещё один worker вслепую поверх активной блокировки;
 - при противоречивом состоянии сначала читать `task-playbook.md`.

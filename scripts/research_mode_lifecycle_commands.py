@@ -62,6 +62,7 @@ from research_mode_utils import (
     atomic_text_write,
     json_dump,
     minutes_since,
+    pending_result_path,
     parse_ts,
     read_json,
     utc_now,
@@ -219,10 +220,16 @@ def begin_iteration(args: argparse.Namespace) -> int:
     )
     initial_state = task.read_state()
     initial_lock = initial_state.get("lock") or {}
+    pending_result: Path | None = None
+    try:
+        pending_result = _pending_result_path(task, initial_lock)
+    except ValidationError:
+        pending_result = None
     if (
         initial_state.get("status") == "running"
         and stale_lock(initial_state)
-        and _pending_result_path(task, initial_lock).exists()
+        and pending_result is not None
+        and pending_result.exists()
     ):
         recovery = recover_pending_result(task, apply_pending_result=True)
         json_dump(recovery)
@@ -1077,8 +1084,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
 
 
 def _pending_result_path(task: ResearchTask, lock: dict[str, Any]) -> Path:
-    run_id = str(lock.get("run_id") or "")
-    return task.tmp_dir / f"result-{run_id}.json"
+    return pending_result_path(task.tmp_dir, lock.get("run_id"))
 
 
 def _consume_pending_result(result_file: Path) -> Path:
@@ -1184,7 +1190,6 @@ def recover_pending_result(
     state = task.read_state()
     lock = state.get("lock") or {}
     run_id = str(lock.get("run_id") or "")
-    result_file = _pending_result_path(task, lock)
     warnings: list[str] = []
 
     if not apply_pending_result:
@@ -1204,6 +1209,17 @@ def recover_pending_result(
             "status": "no_pending_result",
             "run_id": run_id or None,
             "warnings": ["no active run lock"],
+        }
+    try:
+        result_file = _pending_result_path(task, lock)
+    except ValidationError as exc:
+        return {
+            "status": "blocked",
+            "run_id": run_id,
+            "applied_result_file": None,
+            "consumed_result_file": None,
+            "finish_status": None,
+            "warnings": [str(exc)],
         }
     if not result_file.exists():
         return {

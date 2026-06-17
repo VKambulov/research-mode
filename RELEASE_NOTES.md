@@ -26,6 +26,8 @@ License: Apache License, Version 2.0.
   only for valid stale pending worker results, flags invalid pending payloads
   for manual review, and blocks `resume` when a paused task has unresolved
   pending-result inconsistency.
+- Hardened pending-result path handling by rejecting invalid `run_id` values
+  before health or recovery resolves a result file path.
 - Added `recovery-log.jsonl` as an inspectable task-local recovery log for
   applied or rejected pending worker results.
 - Added `recover --refresh-derived` to regenerate missing derived operator
@@ -197,6 +199,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
   для валидных stale pending worker results, invalid pending payloads отправляет
   на manual review, а `resume` блокируется, если paused-задача имеет
   нерешённое pending-result расхождение.
+- Усилена обработка pending-result paths: невалидные `run_id` отклоняются до
+  того, как health или recovery вычисляет путь к result file.
 - Добавлен `recovery-log.jsonl`: task-local recovery log для применённых или
   отклонённых pending worker results.
 - Добавлен `recover --refresh-derived`, чтобы пересобирать missing derived
