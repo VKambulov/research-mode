@@ -8,6 +8,10 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+- No changes yet.
+
+### v0.3.0 - 2026-06-17
+
 - Added public `ROADMAP.md` and `CONTRIBUTING.md` so GitHub readers can see
   project direction, development checks, public contracts, and privacy rules
   without private workspace notes.
@@ -180,6 +184,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ## Русский
 
 ### Unreleased
+
+- Пока нет изменений.
+
+### v0.3.0 - 2026-06-17
 
 - Добавлены публичные `ROADMAP.md` и `CONTRIBUTING.md`: теперь GitHub-читатель
   видит направление проекта, проверки разработки, публичные контракты и правила
