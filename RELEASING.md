@@ -40,9 +40,13 @@ Include in the public package:
 - `LICENSE`
 - `SECURITY.md`
 - `AGENTS.md`
+- `ROADMAP.md`
+- `CONTRIBUTING.md`
 - `.gitignore`
 - `pyrightconfig.json`
 - `assets/`
+- `docs/`
+- `schemas/`
 - `examples/`
 - `scripts/*.py`
 - `scripts/check_research_mode.sh`
@@ -170,9 +174,13 @@ Python-пакет, не самостоятельный демон, не разм
 - `LICENSE`
 - `SECURITY.md`
 - `AGENTS.md`
+- `ROADMAP.md`
+- `CONTRIBUTING.md`
 - `.gitignore`
 - `pyrightconfig.json`
 - `assets/`
+- `docs/`
+- `schemas/`
 - `examples/`
 - `scripts/*.py`
 - `scripts/check_research_mode.sh`

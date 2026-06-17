@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose a Research Mode improvement with contract and safety context.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for product, operator, maintainer, or public-contract improvements. Please avoid private task details unless they are sanitized.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is difficult, unsafe, unclear, or unsupported today?
+    validations:
+      required: true
+  - type: textarea
+    id: current_workflow
+    attributes:
+      label: Current workflow
+      description: How do you handle this today, and why is that not enough?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: dropdown
+    id: contract
+    attributes:
+      label: Public contract impact
+      description: Does this need a new or changed documented contract?
+      options:
+        - No public contract change expected
+        - CLI contract
+        - State/result JSON contract
+        - Documentation/support boundary
+        - Example/research-trace contract
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: security_privacy
+    attributes:
+      label: Security and privacy implications
+      description: Note any impact on packages, paths, task state, artifacts, delivery, cron, external inputs, or sensitive data.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This does not require publishing private task roots, corpora, generated reports, chat identifiers, webhooks, owner-specific configuration, or local workspace paths.
+          required: true
+        - label: I understand Research Mode is OpenClaw-first and not a standalone Python package today.
+          required: true

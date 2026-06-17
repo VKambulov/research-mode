@@ -11,6 +11,7 @@ from research_mode_utils import (
     append_jsonl,
     atomic_text_write,
     ensure_dir,
+    pending_result_path,
     read_json,
     read_jsonl,
     resolve_under_root,
@@ -412,7 +413,10 @@ class ResearchTask:
         stale_iteration_index: int,
         stale_phase: str,
     ) -> dict[str, Any] | None:
-        result_file = self.tmp_dir / f"result-{stale_run_id}.json"
+        try:
+            result_file = pending_result_path(self.tmp_dir, stale_run_id)
+        except ValidationError:
+            return None
         if not result_file.exists():
             return None
 

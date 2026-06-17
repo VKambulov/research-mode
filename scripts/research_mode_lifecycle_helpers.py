@@ -14,7 +14,7 @@ from research_mode_finalization import (
 from research_mode_payloads import result_template
 from research_mode_surfaces import build_synthesis_payload, compute_budget_phase
 from research_mode_task import ResearchTask
-from research_mode_utils import minutes_since, parse_ts, read_jsonl
+from research_mode_utils import minutes_since, parse_ts, pending_result_path, read_jsonl
 
 
 def _routing_text_blob(state: dict[str, Any]) -> str:
@@ -170,7 +170,7 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
     lock = state["lock"]
     run_id = lock["run_id"]
     iteration_index = lock["iteration_index"]
-    result_file = task.tmp_dir / f"result-{run_id}.json"
+    result_file = pending_result_path(task.tmp_dir, run_id)
     working_memory = state.get("working_memory") or {}
     corpus = state.get("corpus") or {}
     corpus_mode = str(corpus.get("mode") or "web")

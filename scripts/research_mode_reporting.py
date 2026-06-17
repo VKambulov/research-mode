@@ -464,6 +464,7 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             f"- State: `{task.state_path}`",
             f"- Sources JSONL: `{task.sources_path}`",
             f"- Findings JSONL: `{task.findings_path}`",
+            f"- Recovery log JSONL: `{task.task_dir / 'recovery-log.jsonl'}`",
             f"- Iterations dir: `{task.iterations_dir}`",
             f"- Input dir: `{task.input_dir}`",
             f"- Corpus dir: `{task.corpus_dir}`",

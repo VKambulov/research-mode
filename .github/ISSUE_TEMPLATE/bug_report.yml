@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible Research Mode problem without sharing secrets.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Before pasting logs or task state, remove secrets, tokens, webhooks, private paths, chat identifiers, owner identifiers, and sensitive source material.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release tag, ClawHub version, or Git commit.
+      placeholder: "v0.2.3 or 4d49c44"
+    validations:
+      required: true
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Installation method
+      options:
+        - ClawHub install
+        - GitHub clone
+        - Local development checkout
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: openclaw_version
+    attributes:
+      label: OpenClaw version
+      description: If known.
+      placeholder: "openclaw --version"
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04, Debian, WSL, macOS, etc."
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Command or workflow
+      description: Describe the chat request, CLI command, cron/review step, or operator action.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized_state
+    attributes:
+      label: Sanitized state or logs
+      description: Optional. Remove secrets, private paths, chat identifiers, owner identifiers, webhooks, and sensitive source material before posting.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I removed secrets, tokens, webhooks, chat identifiers, owner identifiers, private paths, and sensitive source material.
+          required: true
+        - label: I did not paste a live task root, downloaded corpus, generated private report, or owner-specific configuration.
+          required: true

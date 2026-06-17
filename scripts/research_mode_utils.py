@@ -25,6 +25,7 @@ class ValidationError(ResearchModeError):
 
 
 NO_ACTIVE_LEASE: str | None = None
+RUN_ID_PATTERN = re.compile(r"[0-9a-f]{12}")
 
 
 def utc_now() -> str:
@@ -72,6 +73,18 @@ def validate_research_id(research_id: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value):
         raise ValidationError(f"Invalid research id: {research_id}")
     return value
+
+
+def validate_run_id(run_id: object) -> str:
+    value = str(run_id or "").strip()
+    if not RUN_ID_PATTERN.fullmatch(value):
+        raise ValidationError(f"Invalid run id: {run_id}")
+    return value
+
+
+def pending_result_path(tmp_dir: Path, run_id: object) -> Path:
+    value = validate_run_id(run_id)
+    return tmp_dir / f"result-{value}.json"
 
 
 def resolve_under_root(root: Path, child: str | Path, *, label: str) -> Path:

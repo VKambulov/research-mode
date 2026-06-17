@@ -58,9 +58,11 @@ from research_mode_task import ResearchTask, StateManager
 from research_mode_utils import (
     NO_ACTIVE_LEASE,
     ValidationError,
+    append_jsonl,
     atomic_text_write,
     json_dump,
     minutes_since,
+    pending_result_path,
     parse_ts,
     read_json,
     utc_now,
@@ -218,10 +220,16 @@ def begin_iteration(args: argparse.Namespace) -> int:
     )
     initial_state = task.read_state()
     initial_lock = initial_state.get("lock") or {}
+    pending_result: Path | None = None
+    try:
+        pending_result = _pending_result_path(task, initial_lock)
+    except ValidationError:
+        pending_result = None
     if (
         initial_state.get("status") == "running"
         and stale_lock(initial_state)
-        and _pending_result_path(task, initial_lock).exists()
+        and pending_result is not None
+        and pending_result.exists()
     ):
         recovery = recover_pending_result(task, apply_pending_result=True)
         json_dump(recovery)
@@ -1076,8 +1084,7 @@ def finish_iteration(args: argparse.Namespace) -> int:
 
 
 def _pending_result_path(task: ResearchTask, lock: dict[str, Any]) -> Path:
-    run_id = str(lock.get("run_id") or "")
-    return task.tmp_dir / f"result-{run_id}.json"
+    return pending_result_path(task.tmp_dir, lock.get("run_id"))
 
 
 def _consume_pending_result(result_file: Path) -> Path:
@@ -1086,6 +1093,12 @@ def _consume_pending_result(result_file: Path) -> Path:
         consumed_path = result_file.with_name(f"{result_file.name}.{uuid.uuid4().hex[:8]}.applied")
     shutil.move(str(result_file), str(consumed_path))
     return consumed_path
+
+
+def _append_recovery_log(task: ResearchTask, entry: dict[str, Any]) -> Path:
+    recovery_log_path = task.task_dir / "recovery-log.jsonl"
+    append_jsonl(recovery_log_path, [entry])
+    return recovery_log_path
 
 
 def _record_invalid_pending_result(
@@ -1099,8 +1112,18 @@ def _record_invalid_pending_result(
     release_run_id: str | None = None
     release_lease_token: str | None = None
     release_task_id: str | None = None
+    now = utc_now()
+    recovery_log_path = _append_recovery_log(
+        task,
+        {
+            "at": now,
+            "event": "pending_result_invalid",
+            "run_id": run_id,
+            "result_file": str(result_file),
+            "error": error,
+        },
+    )
     with StateManager(task).editor() as state:
-        now = utc_now()
         lock = state.get("lock") or {}
         release_task_id = str(state.get("id") or task.task_dir.name)
         matches_active_lock = (
@@ -1112,6 +1135,7 @@ def _record_invalid_pending_result(
         artifacts["pending_result_invalid_path"] = str(result_file)
         artifacts["pending_result_invalid_error"] = error
         artifacts["pending_result_invalid_at"] = now
+        artifacts["last_recovery_log_path"] = str(recovery_log_path)
         state.setdefault("history", {}).setdefault("audit_trail", []).append(
             {
                 "at": now,
@@ -1166,7 +1190,6 @@ def recover_pending_result(
     state = task.read_state()
     lock = state.get("lock") or {}
     run_id = str(lock.get("run_id") or "")
-    result_file = _pending_result_path(task, lock)
     warnings: list[str] = []
 
     if not apply_pending_result:
@@ -1186,6 +1209,17 @@ def recover_pending_result(
             "status": "no_pending_result",
             "run_id": run_id or None,
             "warnings": ["no active run lock"],
+        }
+    try:
+        result_file = _pending_result_path(task, lock)
+    except ValidationError as exc:
+        return {
+            "status": "blocked",
+            "run_id": run_id,
+            "applied_result_file": None,
+            "consumed_result_file": None,
+            "finish_status": None,
+            "warnings": [str(exc)],
         }
     if not result_file.exists():
         return {
@@ -1231,10 +1265,24 @@ def recover_pending_result(
     )
     _code, finish_result = _finish_iteration_impl(finish_args, emit=False)
     consumed_path = _consume_pending_result(result_file)
+    now = utc_now()
+    recovery_log_path = _append_recovery_log(
+        task,
+        {
+            "at": now,
+            "event": "pending_result_applied",
+            "run_id": run_id,
+            "result_file": str(result_file),
+            "consumed_result_file": str(consumed_path),
+            "finish_status": finish_result.get("status"),
+        },
+    )
     with StateManager(task).editor() as updated_state:
-        now = utc_now()
         updated_state.setdefault("artifacts", {})["last_pending_result_file"] = str(
             consumed_path
+        )
+        updated_state.setdefault("artifacts", {})["last_recovery_log_path"] = str(
+            recovery_log_path
         )
         updated_state.setdefault("history", {}).setdefault("audit_trail", []).append(
             {
@@ -1253,9 +1301,21 @@ def recover_pending_result(
         "run_id": run_id,
         "applied_result_file": str(result_file),
         "consumed_result_file": str(consumed_path),
+        "recovery_log_path": str(recovery_log_path),
         "finish_status": finish_result.get("status"),
         "warnings": warnings,
         "finish": finish_result,
+    }
+
+
+def recover_derived_artifacts(task: ResearchTask) -> dict[str, Any]:
+    before_exists = task.task_playbook_path.exists()
+    refresh_task_playbook(task)
+    refreshed_artifacts = [str(task.task_playbook_path)]
+    return {
+        "status": "refreshed" if not before_exists else "already_current",
+        "refreshed_artifacts": refreshed_artifacts,
+        "state_mutated": False,
     }
 
 
@@ -1263,6 +1323,16 @@ def recover_command(args: argparse.Namespace) -> int:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
     )
+    if bool(getattr(args, "apply_pending_result", False)) and bool(
+        getattr(args, "refresh_derived", False)
+    ):
+        raise ValidationError(
+            "recover accepts only one repair action at a time: --apply-pending-result or --refresh-derived"
+        )
+    if bool(getattr(args, "refresh_derived", False)):
+        result = recover_derived_artifacts(task)
+        json_dump(result)
+        return 0
     result = recover_pending_result(
         task, apply_pending_result=bool(args.apply_pending_result)
     )

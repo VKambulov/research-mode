@@ -1,0 +1,156 @@
+# Research Mode CLI Surface
+
+[English](#english) | [Русский](#русский)
+
+## English
+
+The CLI is an operator and maintainer interface for the OpenClaw skill. It is
+not the normal user entrypoint. Users usually ask an OpenClaw agent to start or
+review a Research Mode task from chat, and the agent uses these commands behind
+that workflow.
+
+### Stable Operator Surface
+
+Stable means "documented operator/maintainer contract", not "recommended for
+every end user".
+
+- Task lifecycle: `create`, `start`, `schedule`, `begin`, `finish`, `fail`.
+- Recovery handoff: `recover`, especially `recover --apply-pending-result` and
+  `recover --refresh-derived`.
+- Task inputs: `attach-input`, `attach-note`, `attach-url-as-md`, `attach-pdf`.
+- Inspection: `status`, `summary`, `draft-report`, `list`, `queue-status`,
+  `health`.
+- Steering: `add-angle`, `add-instruction`, `add-constraint`,
+  `set-deliverable`, `mutate-working-memory`.
+- Control: `pause`, `resume`, `stop`, `unschedule`, `bind-job`.
+- Review and delivery: `approve`, `request-changes`, `reopen`,
+  `mark-delivered`, `record-notification`, `format-delivery`.
+- Runtime preparation: `prepare-runtime`.
+- Linked work: `create-linked-research`.
+
+`begin`, `finish`, and `fail` are stable worker lifecycle commands, but they are
+not the main onboarding path. They exist so scheduled OpenClaw worker turns and
+operators can perform one bounded iteration safely.
+
+### Internal Or More Volatile Surface
+
+- `render-prompt` is mainly a lifecycle/internal debugging surface.
+- Recovery and repair behavior may gain more diagnostics before it is treated
+  as a broad public contract.
+- Machine-readable output can evolve when the matching JSON contract is not
+  documented under `schemas/`.
+
+### Contract Rules
+
+- Prefer helper commands over direct edits to `state.json`.
+- `--id` is a safe task id under the selected research root.
+- `--path` must remain inside the selected research root.
+- Raw workspace files are not final deliverables until the review/finalization
+  contract marks them as review-ready.
+- `awaiting_review` means a human should review a candidate; it does not mean
+  the result has been delivered.
+- `prepare-runtime --package` is a controlled capability. Package decisions
+  should be made by an operator or trusted workflow, not by untrusted retrieved
+  content.
+- `health` is read-only. `health` and `reconcile` report `ok`,
+  `fresh_continuation_recommended`, `repair_needed`, `manual_review_needed`, or
+  `blocked` and recommend the next safe operator action. `repair_needed` is
+  reserved for a valid stale pending worker result that can be applied with
+  explicit recovery.
+
+### Normal Completion Path
+
+Worker completion is intentionally staged. A research iteration that sets
+`should_complete=true` requests completion; it does not skip review gates.
+
+The normal path is:
+
+1. A research worker finishes with `should_complete=true`.
+2. The next lease runs `phase=verify` and writes `result.adequacy`.
+3. If adequacy passes, the next lease runs `phase=finalize`.
+4. A finalize result with `result.finalization.status="passed"` can move the
+   task to `awaiting_review`.
+5. A human or trusted operator uses `approve` to mark the task `complete`.
+
+If a task returns to `idle` after `should_complete=true`, inspect `summary` or
+`task-playbook.md` before treating it as a failure. The likely next action is
+the adequacy or finalization step, not manual state editing.
+
+## Русский
+
+CLI — это интерфейс оператора и сопровождающего для OpenClaw skill. Это не
+обычная пользовательская точка входа. Пользователь обычно просит агента
+OpenClaw запустить или проверить Research Mode из чата, а агент уже использует
+эти команды за кулисами.
+
+### Стабильная операторская поверхность
+
+`Stable` здесь означает "документированный контракт для оператора или
+сопровождающего", а не "команда для каждого обычного пользователя".
+
+- Жизненный цикл задачи: `create`, `start`, `schedule`, `begin`, `finish`,
+  `fail`.
+- Recovery handoff: `recover`, особенно `recover --apply-pending-result` и
+  `recover --refresh-derived`.
+- Входные материалы: `attach-input`, `attach-note`, `attach-url-as-md`,
+  `attach-pdf`.
+- Просмотр: `status`, `summary`, `draft-report`, `list`, `queue-status`,
+  `health`.
+- Управление направлением: `add-angle`, `add-instruction`, `add-constraint`,
+  `set-deliverable`, `mutate-working-memory`.
+- Контроль: `pause`, `resume`, `stop`, `unschedule`, `bind-job`.
+- Ревью и доставка: `approve`, `request-changes`, `reopen`, `mark-delivered`,
+  `record-notification`, `format-delivery`.
+- Подготовка runtime: `prepare-runtime`.
+- Связанные задачи: `create-linked-research`.
+
+`begin`, `finish` и `fail` — стабильные команды worker lifecycle, но не основной
+путь первого знакомства. Они нужны, чтобы scheduled OpenClaw worker turns и
+операторы безопасно выполняли одну ограниченную итерацию.
+
+### Внутренняя или более изменчивая поверхность
+
+- `render-prompt` в основном нужен для lifecycle/internal debugging.
+- Recovery и repair-поведение может получить больше диагностики до того, как
+  станет широким публичным контрактом.
+- Machine-readable output может меняться, если соответствующий JSON-контракт не
+  описан в `schemas/`.
+
+### Правила контракта
+
+- Используйте helper-команды вместо ручного редактирования `state.json`.
+- `--id` — безопасный task id внутри выбранного research root.
+- `--path` должен оставаться внутри выбранного research root.
+- Raw workspace files не являются финальными deliverables, пока
+  review/finalization contract не пометит их как review-ready.
+- `awaiting_review` означает, что кандидат ждёт проверки человеком; это не
+  означает, что результат уже доставлен.
+- `prepare-runtime --package` — controlled capability. Решение об установке
+  packages должен принимать оператор или доверенный workflow, а не недоверенный
+  retrieved content.
+- `health` и `reconcile` — read-only команды. Они показывают `ok`,
+  `fresh_continuation_recommended`, `repair_needed`, `manual_review_needed` или
+  `blocked` и рекомендуют следующий безопасный шаг оператора. `repair_needed`
+  используется только для валидного stale pending worker result, который можно
+  применить явным recovery.
+
+### Нормальный путь завершения
+
+Завершение рабочей итерации намеренно разбито на этапы. Итерация с
+`should_complete=true` запрашивает завершение, но не обходит review gates.
+
+Нормальная цепочка:
+
+1. Рабочая итерация завершается с `should_complete=true`.
+2. Следующая lease-итерация запускает `phase=verify` и пишет
+   `result.adequacy`.
+3. Если достаточность пройдена, следующая lease-итерация запускает
+   `phase=finalize`.
+4. Результат finalize с `result.finalization.status="passed"` может перевести
+   задачу в `awaiting_review`.
+5. Человек или доверенный оператор вызывает `approve`, чтобы перевести задачу в
+   `complete`.
+
+Если после `should_complete=true` задача вернулась в `idle`, сначала смотрите
+`summary` или `task-playbook.md`. Скорее всего, следующий шаг — adequacy или
+finalization, а не ручное редактирование state.

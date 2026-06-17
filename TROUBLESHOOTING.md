@@ -12,25 +12,39 @@ normal operation goes through helper commands, not manual edits to `state.json`.
 Use the highest-level surfaces first:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
+
+`health` is read-only. Its JSON output has stable top-level `status`,
+`findings`, and `recommended_actions` fields for operator automation. Use it
+before repair or resume when task state and artifacts may disagree.
+`reconcile` is the same read-only diagnostic surface. `repair_needed` means a
+valid stale pending worker result can be applied explicitly; `blocked` means
+the operator should wait or gather more context before changing state.
+`fresh_continuation_recommended` means the saved task state is usable, but the
+stale run has no pending result to recover, so the next safe step is a fresh
+`begin`.
 
 Then inspect task-local surfaces:
 
 - `task-playbook.md`;
 - `runs.tsv`;
+- `recovery-log.jsonl`;
 - `state.json`;
 - `final-report.md`;
 - `workspace/` artifacts only when the operator needs deeper evidence.
 
 The usual order is:
 
-1. Check semantic state: status, review, delivery, finalization.
-2. Check physical artifacts: declared files actually exist and are readable.
-3. Check execution trail: `runs.tsv`, latest run id, active lock, finish
+1. Run `health` for read-only diagnosis and recommended actions.
+2. Check semantic state: status, review, delivery, finalization.
+3. Check physical artifacts: declared files actually exist and are readable.
+4. Check execution trail: `runs.tsv`, latest run id, active lock, finish
    transaction.
-4. Choose the narrowest helper command that matches the state.
+5. Choose the narrowest helper command that matches the state.
 
 Manual file surgery is a last resort. If it is unavoidable, make a rollback
 checkpoint first and verify `summary` and `status` after the repair.
@@ -49,6 +63,8 @@ Likely causes:
 Checks:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -91,6 +107,7 @@ Checks:
 - `transactions.finish.status`;
 - `.tmp/result-<run-id>.json`;
 - latest row in `runs.tsv`;
+- latest row in `recovery-log.jsonl`;
 - any recovery note under `workspace/`.
 
 Safe actions:
@@ -98,6 +115,15 @@ Safe actions:
 - wait if the lease is fresh and a worker is still active;
 - if `.tmp/result-<run-id>.json` exists and the lock is stale, run
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- if `health` reports `fresh_continuation_recommended`, run
+  `python3 scripts/research_mode.py begin --id <research-id>` to start from the
+  saved state and abandon the stale run;
+- if `health` reports `missing_task_playbook`, run
+  `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
+- if `health` reports `invalid_pending_result`, keep the pending file for bug
+  context and inspect manually before running recovery;
+- if `health` reports `invalid_run_id`, inspect `state.json` manually; recovery
+  will not follow a pending-result path derived from an invalid run id;
 - use `fail` if the leased run is known to be broken and the run id is known;
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.
@@ -348,14 +374,28 @@ stage is safe to ignore.
 Сначала используются самые высокоуровневые представления:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
+
+`health` ничего не исправляет. В JSON-выводе есть стабильные верхние поля
+`status`, `findings` и `recommended_actions`, которые можно использовать для
+операторской автоматизации. Запускайте её перед repair или resume, если state и
+artifacts могли разойтись.
+`reconcile` — такой же read-only диагностический интерфейс. `repair_needed`
+означает, что валидный stale pending worker result можно применить явно;
+`blocked` означает, что оператору нужно подождать или собрать больше контекста
+до изменения state. `fresh_continuation_recommended` означает, что сохранённый
+state пригоден, но stale run не оставил pending result для recovery, поэтому
+следующий безопасный шаг — свежий `begin`.
 
 Затем проверяются файлы внутри задачи:
 
 - `task-playbook.md`;
 - `runs.tsv`;
+- `recovery-log.jsonl`;
 - `state.json`;
 - `final-report.md`;
 - артефакты `workspace/` только тогда, когда оператору нужны более глубокие
@@ -363,11 +403,12 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 
 Обычный порядок:
 
-1. Проверить смысловое состояние: статус, ревью, доставку, финальную проверку.
-2. Проверить физические артефакты: объявленные файлы существуют и читаются.
-3. Проверить след выполнения: `runs.tsv`, последний run id, активную блокировку,
+1. Запустить `health` для read-only диагностики и recommended actions.
+2. Проверить смысловое состояние: статус, ревью, доставку, финальную проверку.
+3. Проверить физические артефакты: объявленные файлы существуют и читаются.
+4. Проверить след выполнения: `runs.tsv`, последний run id, активную блокировку,
    транзакцию `finish`.
-4. Выбрать самую узкую helper-команду, соответствующую состоянию.
+5. Выбрать самую узкую helper-команду, соответствующую состоянию.
 
 Ручное редактирование файлов — крайний вариант. Если оно неизбежно, сначала
 нужен rollback checkpoint, а после ремонта — повторная проверка `summary` и
@@ -387,6 +428,8 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 Проверки:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -428,11 +471,24 @@ python3 scripts/research_mode.py stop --id <research-id>
 - возраст блокировки и stale timeout;
 - `transactions.finish.status`;
 - последняя строка в `runs.tsv`;
+- последняя строка в `recovery-log.jsonl`;
 - recovery note внутри `workspace/`.
 
 Безопасные действия:
 
 - подождать, если lease свежий и worker ещё работает;
+- если `.tmp/result-<run-id>.json` существует и блокировка stale, запустить
+  `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- если `health` сообщает `fresh_continuation_recommended`, запустить
+  `python3 scripts/research_mode.py begin --id <research-id>`, чтобы продолжить
+  от сохранённого state и abandon stale run;
+- если `health` сообщает `missing_task_playbook`, запустить
+  `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
+- если `health` сообщает `invalid_pending_result`, сохранить pending-файл как
+  контекст для bug report и проверить вручную до recovery;
+- если `health` сообщает `invalid_run_id`, вручную проверить `state.json`;
+  recovery не будет использовать pending-result path, построенный из
+  невалидного run id;
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
 - не запускать ещё один worker вслепую поверх активной блокировки;
 - при противоречивом состоянии сначала читать `task-playbook.md`.

@@ -27,6 +27,7 @@ from research_mode_create_schedule import (
     preview_task_from_args,
     schedule_task,
 )
+from research_mode_health import health_command
 from research_mode_lifecycle_commands import (
     begin_iteration,
     fail_iteration,
@@ -261,6 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument("--id")
     recover.add_argument("--path")
     recover.add_argument("--apply-pending-result", action="store_true")
+    recover.add_argument("--refresh-derived", action="store_true")
     recover.set_defaults(func=recover_command)
 
     record_notification = subparsers.add_parser(
@@ -435,6 +437,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format (default: json)",
     )
     status.set_defaults(func=status_command)
+
+    health = subparsers.add_parser(
+        "health",
+        help="Run read-only task health diagnostics",
+        description="Check state/artifact consistency and report safe next actions without mutating task state.",
+        parents=[root_parent],
+    )
+    health.add_argument("--id", help="Research id")
+    health.add_argument("--path", help="Task directory or state.json path")
+    health.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    health.set_defaults(func=health_command)
+
+    reconcile = subparsers.add_parser(
+        "reconcile",
+        help="Alias for read-only task health diagnostics",
+        description="Alias for health: report state/artifact consistency and safe next actions without mutating task state.",
+        parents=[root_parent],
+    )
+    reconcile.add_argument("--id", help="Research id")
+    reconcile.add_argument("--path", help="Task directory or state.json path")
+    reconcile.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    reconcile.set_defaults(func=health_command)
 
     summary = subparsers.add_parser(
         "summary",

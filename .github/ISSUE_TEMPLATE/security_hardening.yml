@@ -1,0 +1,55 @@
+name: Security hardening
+description: Propose a hardening change or report a non-exploitable security concern.
+title: "[Security hardening]: "
+labels: ["security", "hardening"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this public form for an exploitable vulnerability. Use a private security advisory or the repository security contact instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - prepare-runtime / package installs
+        - filesystem paths / path containment
+        - URL capture / redirects
+        - task state / JSON contracts
+        - artifacts / finalization
+        - delivery intents / owner binding
+        - cron / worker leases / recovery
+        - documentation / examples
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: Describe the risk without publishing exploit steps or sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_hardening
+    attributes:
+      label: Proposed hardening
+      description: What should change?
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      description: Note whether this affects existing task state, examples, operators, or OpenClaw installations.
+    validations:
+      required: true
+  - type: checkboxes
+    id: disclosure
+    attributes:
+      label: Disclosure safety
+      options:
+        - label: This public issue does not include secrets, tokens, webhooks, private paths, chat identifiers, owner identifiers, sensitive task data, or exploit details.
+          required: true
+        - label: If this becomes exploitable, I will move it to a private security advisory or contact path.
+          required: true

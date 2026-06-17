@@ -8,7 +8,30 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
-- No changes yet.
+- Added public `ROADMAP.md` and `CONTRIBUTING.md` so GitHub readers can see
+  project direction, development checks, public contracts, and privacy rules
+  without private workspace notes.
+- Added GitHub issue templates for bug reports, feature requests, and security
+  hardening proposals.
+- Documented the current lightweight security baseline: release gate plus
+  Bandit smoke scan, with CodeQL not enabled by default.
+- Added public CLI, state-versioning, and JSON schema contract docs for task
+  state, worker results, adequacy, finalization, and delivery intents.
+- Clarified the `prepare-runtime --package` threat model as a controlled
+  task-local capability, not an accidental code-execution surface.
+- Added read-only `health` diagnostics, plus `reconcile` as a read-only alias,
+  with JSON/text output for state/artifact consistency warnings and safe
+  operator next actions.
+- Tightened pending-result recovery guidance: `health` reports explicit repair
+  only for valid stale pending worker results, flags invalid pending payloads
+  for manual review, and blocks `resume` when a paused task has unresolved
+  pending-result inconsistency.
+- Hardened pending-result path handling by rejecting invalid `run_id` values
+  before health or recovery resolves a result file path.
+- Added `recovery-log.jsonl` as an inspectable task-local recovery log for
+  applied or rejected pending worker results.
+- Added `recover --refresh-derived` to regenerate missing derived operator
+  surfaces, such as `task-playbook.md`, without mutating task state.
 
 ### v0.2.3 - 2026-06-16
 
@@ -158,7 +181,30 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
-- Изменений пока нет.
+- Добавлены публичные `ROADMAP.md` и `CONTRIBUTING.md`: теперь GitHub-читатель
+  видит направление проекта, проверки разработки, публичные контракты и правила
+  приватности без приватных workspace-заметок.
+- Добавлены GitHub issue templates для bug reports, feature requests и security
+  hardening proposals.
+- Документирован текущий лёгкий security baseline: release gate плюс Bandit
+  smoke scan; CodeQL по умолчанию не включён.
+- Добавлены публичные docs для CLI, state versioning и JSON schema contracts:
+  task state, worker results, adequacy, finalization и delivery intents.
+- Уточнён threat model для `prepare-runtime --package`: это controlled
+  task-local capability, а не случайная поверхность выполнения кода.
+- Добавлена read-only диагностика `health` и read-only alias `reconcile` с
+  JSON/text output для state/artifact consistency warnings и безопасных
+  следующих шагов оператора.
+- Уточнён recovery flow для pending result: `health` предлагает repair только
+  для валидных stale pending worker results, invalid pending payloads отправляет
+  на manual review, а `resume` блокируется, если paused-задача имеет
+  нерешённое pending-result расхождение.
+- Усилена обработка pending-result paths: невалидные `run_id` отклоняются до
+  того, как health или recovery вычисляет путь к result file.
+- Добавлен `recovery-log.jsonl`: task-local recovery log для применённых или
+  отклонённых pending worker results.
+- Добавлен `recover --refresh-derived`, чтобы пересобирать missing derived
+  operator surfaces вроде `task-playbook.md` без изменения task state.
 
 ### v0.2.3 - 2026-06-16
 
