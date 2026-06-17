@@ -19,6 +19,8 @@ License: Apache License, Version 2.0.
   state, worker results, adequacy, finalization, and delivery intents.
 - Clarified the `prepare-runtime --package` threat model as a controlled
   task-local capability, not an accidental code-execution surface.
+- Added read-only `health` diagnostics with JSON/text output for state/artifact
+  consistency warnings and safe operator next actions.
 
 ### v0.2.3 - 2026-06-16
 
@@ -179,6 +181,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
   task state, worker results, adequacy, finalization и delivery intents.
 - Уточнён threat model для `prepare-runtime --package`: это controlled
   task-local capability, а не случайная поверхность выполнения кода.
+- Добавлена read-only диагностика `health` с JSON/text output для
+  state/artifact consistency warnings и безопасных следующих шагов оператора.
 
 ### v0.2.3 - 2026-06-16
 

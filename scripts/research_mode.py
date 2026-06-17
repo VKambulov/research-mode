@@ -27,6 +27,7 @@ from research_mode_create_schedule import (
     preview_task_from_args,
     schedule_task,
 )
+from research_mode_health import health_command
 from research_mode_lifecycle_commands import (
     begin_iteration,
     fail_iteration,
@@ -435,6 +436,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format (default: json)",
     )
     status.set_defaults(func=status_command)
+
+    health = subparsers.add_parser(
+        "health",
+        help="Run read-only task health diagnostics",
+        description="Check state/artifact consistency and report safe next actions without mutating task state.",
+        parents=[root_parent],
+    )
+    health.add_argument("--id", help="Research id")
+    health.add_argument("--path", help="Task directory or state.json path")
+    health.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    health.set_defaults(func=health_command)
 
     summary = subparsers.add_parser(
         "summary",

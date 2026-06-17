@@ -12,9 +12,14 @@ normal operation goes through helper commands, not manual edits to `state.json`.
 Use the highest-level surfaces first:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
+
+`health` is read-only. Its JSON output has stable top-level `status`,
+`findings`, and `recommended_actions` fields for operator automation. Use it
+before repair or resume when task state and artifacts may disagree.
 
 Then inspect task-local surfaces:
 
@@ -26,11 +31,12 @@ Then inspect task-local surfaces:
 
 The usual order is:
 
-1. Check semantic state: status, review, delivery, finalization.
-2. Check physical artifacts: declared files actually exist and are readable.
-3. Check execution trail: `runs.tsv`, latest run id, active lock, finish
+1. Run `health` for read-only diagnosis and recommended actions.
+2. Check semantic state: status, review, delivery, finalization.
+3. Check physical artifacts: declared files actually exist and are readable.
+4. Check execution trail: `runs.tsv`, latest run id, active lock, finish
    transaction.
-4. Choose the narrowest helper command that matches the state.
+5. Choose the narrowest helper command that matches the state.
 
 Manual file surgery is a last resort. If it is unavoidable, make a rollback
 checkpoint first and verify `summary` and `status` after the repair.
@@ -49,6 +55,7 @@ Likely causes:
 Checks:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -348,9 +355,15 @@ stage is safe to ignore.
 Сначала используются самые высокоуровневые представления:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
+
+`health` ничего не исправляет. В JSON-выводе есть стабильные верхние поля
+`status`, `findings` и `recommended_actions`, которые можно использовать для
+операторской автоматизации. Запускайте её перед repair или resume, если state и
+artifacts могли разойтись.
 
 Затем проверяются файлы внутри задачи:
 
@@ -363,11 +376,12 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 
 Обычный порядок:
 
-1. Проверить смысловое состояние: статус, ревью, доставку, финальную проверку.
-2. Проверить физические артефакты: объявленные файлы существуют и читаются.
-3. Проверить след выполнения: `runs.tsv`, последний run id, активную блокировку,
+1. Запустить `health` для read-only диагностики и recommended actions.
+2. Проверить смысловое состояние: статус, ревью, доставку, финальную проверку.
+3. Проверить физические артефакты: объявленные файлы существуют и читаются.
+4. Проверить след выполнения: `runs.tsv`, последний run id, активную блокировку,
    транзакцию `finish`.
-4. Выбрать самую узкую helper-команду, соответствующую состоянию.
+5. Выбрать самую узкую helper-команду, соответствующую состоянию.
 
 Ручное редактирование файлов — крайний вариант. Если оно неизбежно, сначала
 нужен rollback checkpoint, а после ремонта — повторная проверка `summary` и
@@ -387,6 +401,7 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 Проверки:
 
 ```bash
+python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
