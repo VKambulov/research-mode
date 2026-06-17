@@ -519,6 +519,7 @@ python3 scripts/research_mode.py list --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
@@ -740,6 +741,7 @@ Use these instead of manually stitching state files:
 - `summary`
 - `status`
 - `health`
+- `reconcile`
 - `queue-status`
 - `draft-report`
 - `task-playbook.md`
@@ -1445,6 +1447,7 @@ python3 scripts/release_smoke.py
 - `summary`
 - `status`
 - `health`
+- `reconcile`
 - `draft-report`
 - `task-playbook.md`
 - `runs.tsv`

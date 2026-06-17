@@ -13,6 +13,7 @@ Use the highest-level surfaces first:
 
 ```bash
 python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -20,6 +21,9 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 `health` is read-only. Its JSON output has stable top-level `status`,
 `findings`, and `recommended_actions` fields for operator automation. Use it
 before repair or resume when task state and artifacts may disagree.
+`reconcile` is the same read-only diagnostic surface. `repair_needed` means a
+valid stale pending worker result can be applied explicitly; `blocked` means
+the operator should wait or gather more context before changing state.
 
 Then inspect task-local surfaces:
 
@@ -56,6 +60,7 @@ Checks:
 
 ```bash
 python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -105,6 +110,8 @@ Safe actions:
 - wait if the lease is fresh and a worker is still active;
 - if `.tmp/result-<run-id>.json` exists and the lock is stale, run
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- if `health` reports `invalid_pending_result`, keep the pending file for bug
+  context and inspect manually before running recovery;
 - use `fail` if the leased run is known to be broken and the run id is known;
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.
@@ -356,6 +363,7 @@ stage is safe to ignore.
 
 ```bash
 python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -364,6 +372,10 @@ python3 scripts/research_mode.py status --id <research-id> --format text
 `status`, `findings` и `recommended_actions`, которые можно использовать для
 операторской автоматизации. Запускайте её перед repair или resume, если state и
 artifacts могли разойтись.
+`reconcile` — такой же read-only диагностический интерфейс. `repair_needed`
+означает, что валидный stale pending worker result можно применить явно;
+`blocked` означает, что оператору нужно подождать или собрать больше контекста
+до изменения state.
 
 Затем проверяются файлы внутри задачи:
 
@@ -402,6 +414,7 @@ artifacts могли разойтись.
 
 ```bash
 python3 scripts/research_mode.py health --id <research-id> --format text
+python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
@@ -448,6 +461,10 @@ python3 scripts/research_mode.py stop --id <research-id>
 Безопасные действия:
 
 - подождать, если lease свежий и worker ещё работает;
+- если `.tmp/result-<run-id>.json` существует и блокировка stale, запустить
+  `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- если `health` сообщает `invalid_pending_result`, сохранить pending-файл как
+  контекст для bug report и проверить вручную до recovery;
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
 - не запускать ещё один worker вслепую поверх активной блокировки;
 - при противоречивом состоянии сначала читать `task-playbook.md`.

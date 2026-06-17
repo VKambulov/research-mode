@@ -20,6 +20,7 @@ from research_mode_corpus import (
     unique_copy_destination,
     write_corpus_manifest,
 )
+from research_mode_health import build_health_payload
 from research_mode_lifecycle_helpers import clear_reviewable_candidate
 from research_mode_payloads import normalize_string_list
 from research_mode_queue import release_global_queue
@@ -313,6 +314,21 @@ def transition_command(
     )
     manager = StateManager(task)
     action = args.action
+    if action == "resume":
+        state = task.read_state()
+        health = build_health_payload(task, state)
+        if state.get("status") == "paused" and health.get("status") != "ok":
+            json_dump(
+                {
+                    "status": state.get("status"),
+                    "action": action,
+                    "blocked_by_health": True,
+                    "health_status": health.get("status"),
+                    "findings": health.get("findings") or [],
+                    "recommended_actions": health.get("recommended_actions") or [],
+                }
+            )
+            return 0
     remove_job_id: str | None = None
     stale_stop_release: dict[str, str | None] | None = None
     task_id_for_queue_release: str | None = None

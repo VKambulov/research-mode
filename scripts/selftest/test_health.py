@@ -7,6 +7,38 @@ from pathlib import Path
 from .helpers import assert_eq, assert_in, assert_true, json_out, run
 
 
+def _write_pending_result(lease: dict, *, valid: bool = True) -> Path:
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "summary": "Pending worker result.",
+        "next_angle": "Continue from the pending result.",
+        "meaningful_progress": True,
+        "phase": "analyze",
+        "sources": [{"title": "Pending source", "url": "https://example.com/pending"}],
+        "findings": [{"kind": "fact", "text": "Pending finding."}],
+        "notify_recommendation": "silent",
+        "should_complete": False,
+    }
+    if not valid:
+        payload.pop("summary")
+    result_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return result_file
+
+
+def _age_lock(root: Path, task_id: str) -> None:
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["lock"]["started_at"] = "2020-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_health_ok_json_is_read_only(root: Path) -> None:
     created = json_out(
         run(
@@ -110,3 +142,145 @@ def test_health_reports_missing_review_artifact(root: Path) -> None:
         text,
         "health text should show finding code",
     )
+
+
+def test_health_reports_valid_stale_pending_result_as_repair_needed(root: Path) -> None:
+    task_id = "health-stale-pending"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should identify safe pending repair",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    _write_pending_result(lease, valid=True)
+    _age_lock(root, task_id)
+    state_path = root / task_id / "state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate stale pending state")
+    assert_eq(health["status"], "repair_needed", "valid stale pending result status")
+    assert_true(
+        any(finding.get("code") == "pending_result_available" for finding in health["findings"]),
+        "health should expose pending_result_available",
+    )
+    assert_true(
+        any(action.get("command") == "recover --apply-pending-result" for action in health["recommended_actions"]),
+        "health should recommend explicit recover",
+    )
+
+
+def test_health_reports_invalid_stale_pending_result_as_manual_review(root: Path) -> None:
+    task_id = "health-invalid-pending"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should reject invalid pending repair",
+            "--stale-timeout-min",
+            "1",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    _write_pending_result(lease, valid=False)
+    _age_lock(root, task_id)
+    state_path = root / task_id / "state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate invalid pending state")
+    assert_eq(health["status"], "manual_review_needed", "invalid pending result status")
+    assert_true(
+        any(finding.get("code") == "invalid_pending_result" for finding in health["findings"]),
+        "health should expose invalid_pending_result",
+    )
+    assert_true(
+        not any(action.get("kind") == "repair" for action in health["recommended_actions"]),
+        "health should not recommend repair for invalid pending result",
+    )
+
+
+def test_health_blocks_fresh_pending_result_until_run_is_stale(root: Path) -> None:
+    task_id = "health-fresh-pending"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should not repair a fresh active run",
+            "--stale-timeout-min",
+            "30",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    _write_pending_result(lease, valid=True)
+    state_path = root / task_id / "state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate fresh pending state")
+    assert_eq(health["status"], "blocked", "fresh active pending result status")
+    assert_true(
+        any(finding.get("code") == "active_pending_result_not_stale" for finding in health["findings"]),
+        "health should explain active non-stale pending result",
+    )
+    assert_true(
+        not any(action.get("kind") == "repair" for action in health["recommended_actions"]),
+        "health should not recommend repair while active run is fresh",
+    )
+
+
+def test_reconcile_is_read_only_health_alias(root: Path) -> None:
+    task_id = "reconcile-alias"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Reconcile should share health diagnostics",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    reconcile = json_out(run("reconcile", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "reconcile must not mutate state")
+    assert_eq(reconcile["status"], health["status"], "reconcile status should match health")
+    assert_eq(
+        reconcile["findings"],
+        health["findings"],
+        "reconcile findings should match health",
+    )
+    assert_eq(
+        reconcile["recommended_actions"],
+        health["recommended_actions"],
+        "reconcile actions should match health",
+    )
+    assert_eq(reconcile["read_only"], True, "reconcile should be read-only")

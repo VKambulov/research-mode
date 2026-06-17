@@ -453,6 +453,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     health.set_defaults(func=health_command)
 
+    reconcile = subparsers.add_parser(
+        "reconcile",
+        help="Alias for read-only task health diagnostics",
+        description="Alias for health: report state/artifact consistency and safe next actions without mutating task state.",
+        parents=[root_parent],
+    )
+    reconcile.add_argument("--id", help="Research id")
+    reconcile.add_argument("--path", help="Task directory or state.json path")
+    reconcile.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    reconcile.set_defaults(func=health_command)
+
     summary = subparsers.add_parser(
         "summary",
         help="Render a human-friendly intermediate summary",

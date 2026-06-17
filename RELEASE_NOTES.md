@@ -19,8 +19,13 @@ License: Apache License, Version 2.0.
   state, worker results, adequacy, finalization, and delivery intents.
 - Clarified the `prepare-runtime --package` threat model as a controlled
   task-local capability, not an accidental code-execution surface.
-- Added read-only `health` diagnostics with JSON/text output for state/artifact
-  consistency warnings and safe operator next actions.
+- Added read-only `health` diagnostics, plus `reconcile` as a read-only alias,
+  with JSON/text output for state/artifact consistency warnings and safe
+  operator next actions.
+- Tightened pending-result recovery guidance: `health` reports explicit repair
+  only for valid stale pending worker results, flags invalid pending payloads
+  for manual review, and blocks `resume` when a paused task has unresolved
+  pending-result inconsistency.
 
 ### v0.2.3 - 2026-06-16
 
@@ -181,8 +186,13 @@ Before publishing, confirm `LICENSE` is included in the public package.
   task state, worker results, adequacy, finalization и delivery intents.
 - Уточнён threat model для `prepare-runtime --package`: это controlled
   task-local capability, а не случайная поверхность выполнения кода.
-- Добавлена read-only диагностика `health` с JSON/text output для
-  state/artifact consistency warnings и безопасных следующих шагов оператора.
+- Добавлена read-only диагностика `health` и read-only alias `reconcile` с
+  JSON/text output для state/artifact consistency warnings и безопасных
+  следующих шагов оператора.
+- Уточнён recovery flow для pending result: `health` предлагает repair только
+  для валидных stale pending worker results, invalid pending payloads отправляет
+  на manual review, а `resume` блокируется, если paused-задача имеет
+  нерешённое pending-result расхождение.
 
 ### v0.2.3 - 2026-06-16
 

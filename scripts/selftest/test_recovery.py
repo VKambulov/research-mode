@@ -153,3 +153,35 @@ def test_recover_invalid_pending_result_diagnoses_without_mutation(root: Path) -
     assert_eq(_jsonl_count(root / task_id / "findings.jsonl"), 0, "invalid recovery should not append findings")
     audit_trail = state.get("history", {}).get("audit_trail", [])
     assert_true(any(e.get("event") == "pending_result_invalid" for e in audit_trail), "audit should record invalid pending result")
+
+
+def test_resume_blocks_paused_task_with_pending_result(root: Path) -> None:
+    task_id = "resume-blocks-pending"
+    lease = _create_and_begin(root, task_id)
+    _write_pending_result(lease)
+    _age_lock(root, task_id)
+
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "paused"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    before = state_path.read_text(encoding="utf-8")
+
+    resumed = json_out(run("resume", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "resume should not mutate paused task with pending result")
+    assert_eq(resumed["status"], "paused", "resume should leave task paused")
+    assert_eq(
+        resumed.get("blocked_by_health"),
+        True,
+        "resume should explain health block",
+    )
+    assert_eq(
+        resumed.get("health_status"),
+        "manual_review_needed",
+        "paused pending state should require manual review",
+    )

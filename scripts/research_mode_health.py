@@ -5,9 +5,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from research_mode_lifecycle_commands import load_result_payload
+from research_mode_lifecycle_helpers import stale_lock
 from research_mode_registry import resolve_task_from_args
 from research_mode_surfaces import build_summary_payload
-from research_mode_utils import json_dump
+from research_mode_utils import ValidationError, json_dump
 
 
 def _pending_result_file(task_dir: Path, state: dict[str, Any]) -> Path | None:
@@ -47,26 +49,105 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
 
     pending_result = _pending_result_file(task.task_dir, state)
     if pending_result is not None:
-        findings.append(
-            {
-                "code": "pending_result_available",
-                "severity": "warning",
-                "status": "repair_needed",
-                "message": "A pending worker result exists and can be recovered explicitly.",
-                "details": {"result_file": str(pending_result)},
-            }
-        )
-        recommended_actions.append(
-            {
-                "kind": "repair",
-                "command": "recover --apply-pending-result",
-                "note": "Run recover only after confirming the pending result belongs to the active run.",
-            }
-        )
+        lock = state.get("lock") or {}
+        pending_details = {
+            "result_file": str(pending_result),
+            "run_id": lock.get("run_id"),
+            "task_status": state.get("status"),
+            "lock_status": lock.get("status"),
+            "stale": stale_lock(state),
+        }
+        try:
+            load_result_payload(pending_result)
+        except ValidationError as exc:
+            findings.append(
+                {
+                    "code": "invalid_pending_result",
+                    "severity": "error",
+                    "status": "manual_review_needed",
+                    "message": "A pending worker result exists but is not a valid worker result payload.",
+                    "details": {**pending_details, "error": str(exc)},
+                }
+            )
+            recommended_actions.append(
+                {
+                    "kind": "manual_review",
+                    "warning_code": "invalid_pending_result",
+                    "note": "Inspect the pending result and task state before attempting recovery.",
+                    "checklist": [
+                        "Open the pending result JSON and verify whether it belongs to the active run.",
+                        "Keep the file for bug-report context if the worker wrote an invalid payload.",
+                        "Do not run recover until the payload has a valid worker-result shape.",
+                    ],
+                }
+            )
+        else:
+            if (
+                state.get("status") == "running"
+                and lock.get("status") == "held"
+                and stale_lock(state)
+            ):
+                findings.append(
+                    {
+                        "code": "pending_result_available",
+                        "severity": "warning",
+                        "status": "repair_needed",
+                        "message": "A pending worker result exists and can be recovered explicitly.",
+                        "details": pending_details,
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "kind": "repair",
+                        "command": "recover --apply-pending-result",
+                        "note": "Run recover only after confirming the pending result belongs to the active run.",
+                    }
+                )
+            elif state.get("status") == "running" and lock.get("status") == "held":
+                findings.append(
+                    {
+                        "code": "active_pending_result_not_stale",
+                        "severity": "warning",
+                        "status": "blocked",
+                        "message": "A pending worker result exists, but the active run is not stale yet.",
+                        "details": pending_details,
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "kind": "wait",
+                        "warning_code": "active_pending_result_not_stale",
+                        "note": "Wait for the active worker to finish, or rerun health after the lock becomes stale.",
+                    }
+                )
+            else:
+                findings.append(
+                    {
+                        "code": "pending_result_state_mismatch",
+                        "severity": "error",
+                        "status": "manual_review_needed",
+                        "message": "A pending worker result exists, but task status does not allow automatic recovery.",
+                        "details": pending_details,
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "kind": "manual_review",
+                        "warning_code": "pending_result_state_mismatch",
+                        "note": "Inspect task state before resume, repair, or fresh continuation.",
+                        "checklist": [
+                            "Confirm whether the pending result belongs to the latest run.",
+                            "Do not resume until the lock/result mismatch is resolved.",
+                            "Use recover only for a running stale task with a valid pending result.",
+                        ],
+                    }
+                )
 
     statuses = {str(finding.get("status") or "") for finding in findings}
     if "manual_review_needed" in statuses:
         status = "manual_review_needed"
+    elif "blocked" in statuses:
+        status = "blocked"
     elif "repair_needed" in statuses:
         status = "repair_needed"
     else:
