@@ -58,6 +58,7 @@ from research_mode_task import ResearchTask, StateManager
 from research_mode_utils import (
     NO_ACTIVE_LEASE,
     ValidationError,
+    append_jsonl,
     atomic_text_write,
     json_dump,
     minutes_since,
@@ -1088,6 +1089,12 @@ def _consume_pending_result(result_file: Path) -> Path:
     return consumed_path
 
 
+def _append_recovery_log(task: ResearchTask, entry: dict[str, Any]) -> Path:
+    recovery_log_path = task.task_dir / "recovery-log.jsonl"
+    append_jsonl(recovery_log_path, [entry])
+    return recovery_log_path
+
+
 def _record_invalid_pending_result(
     task: ResearchTask,
     *,
@@ -1099,8 +1106,18 @@ def _record_invalid_pending_result(
     release_run_id: str | None = None
     release_lease_token: str | None = None
     release_task_id: str | None = None
+    now = utc_now()
+    recovery_log_path = _append_recovery_log(
+        task,
+        {
+            "at": now,
+            "event": "pending_result_invalid",
+            "run_id": run_id,
+            "result_file": str(result_file),
+            "error": error,
+        },
+    )
     with StateManager(task).editor() as state:
-        now = utc_now()
         lock = state.get("lock") or {}
         release_task_id = str(state.get("id") or task.task_dir.name)
         matches_active_lock = (
@@ -1112,6 +1129,7 @@ def _record_invalid_pending_result(
         artifacts["pending_result_invalid_path"] = str(result_file)
         artifacts["pending_result_invalid_error"] = error
         artifacts["pending_result_invalid_at"] = now
+        artifacts["last_recovery_log_path"] = str(recovery_log_path)
         state.setdefault("history", {}).setdefault("audit_trail", []).append(
             {
                 "at": now,
@@ -1231,10 +1249,24 @@ def recover_pending_result(
     )
     _code, finish_result = _finish_iteration_impl(finish_args, emit=False)
     consumed_path = _consume_pending_result(result_file)
+    now = utc_now()
+    recovery_log_path = _append_recovery_log(
+        task,
+        {
+            "at": now,
+            "event": "pending_result_applied",
+            "run_id": run_id,
+            "result_file": str(result_file),
+            "consumed_result_file": str(consumed_path),
+            "finish_status": finish_result.get("status"),
+        },
+    )
     with StateManager(task).editor() as updated_state:
-        now = utc_now()
         updated_state.setdefault("artifacts", {})["last_pending_result_file"] = str(
             consumed_path
+        )
+        updated_state.setdefault("artifacts", {})["last_recovery_log_path"] = str(
+            recovery_log_path
         )
         updated_state.setdefault("history", {}).setdefault("audit_trail", []).append(
             {
@@ -1253,6 +1285,7 @@ def recover_pending_result(
         "run_id": run_id,
         "applied_result_file": str(result_file),
         "consumed_result_file": str(consumed_path),
+        "recovery_log_path": str(recovery_log_path),
         "finish_status": finish_result.get("status"),
         "warnings": warnings,
         "finish": finish_result,

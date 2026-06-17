@@ -62,6 +62,14 @@ def _jsonl_count(path: Path) -> int:
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def test_recover_pending_result_applies_once(root: Path) -> None:
     task_id = "pending-result"
     lease = _create_and_begin(root, task_id)
@@ -92,6 +100,24 @@ def test_recover_pending_result_applies_once(root: Path) -> None:
     assert_eq(state.get("queue", {}).get("status"), "free", "recovery should free queue state")
     audit_trail = state.get("history", {}).get("audit_trail", [])
     assert_true(any(e.get("event") == "pending_result_applied" for e in audit_trail), "audit should record recovery")
+    recovery_log = _read_jsonl(root / task_id / "recovery-log.jsonl")
+    assert_true(
+        any(e.get("event") == "pending_result_applied" for e in recovery_log),
+        "recovery log should record applied pending result",
+    )
+    summary_text = run(
+        "summary",
+        "--root",
+        str(root),
+        "--id",
+        task_id,
+        "--format",
+        "text",
+    ).stdout
+    assert_true(
+        "Recovery log:" in summary_text,
+        "summary should expose the recovery log path",
+    )
     assert_eq(_jsonl_count(root / task_id / "sources.jsonl"), 1, "source should append once")
     assert_eq(_jsonl_count(root / task_id / "findings.jsonl"), 1, "finding should append once")
 
@@ -153,6 +179,11 @@ def test_recover_invalid_pending_result_diagnoses_without_mutation(root: Path) -
     assert_eq(_jsonl_count(root / task_id / "findings.jsonl"), 0, "invalid recovery should not append findings")
     audit_trail = state.get("history", {}).get("audit_trail", [])
     assert_true(any(e.get("event") == "pending_result_invalid" for e in audit_trail), "audit should record invalid pending result")
+    recovery_log = _read_jsonl(root / task_id / "recovery-log.jsonl")
+    assert_true(
+        any(e.get("event") == "pending_result_invalid" for e in recovery_log),
+        "recovery log should record invalid pending result",
+    )
 
 
 def test_resume_blocks_paused_task_with_pending_result(root: Path) -> None:

@@ -285,6 +285,7 @@ A Research Mode task can produce several kinds of artifacts:
   analysis outputs;
 - `task-playbook.md`: operator-facing view of current state and next action;
 - `runs.tsv`: execution trail;
+- `recovery-log.jsonl`: explicit repair/recovery events;
 - `final-report.md`: synthesized candidate or approved report when available.
 
 Human review should focus on the final candidate and operator surfaces, not on
@@ -528,6 +529,7 @@ Task-local files also matter:
 
 - `task-playbook.md`: current operator guidance and next action;
 - `runs.tsv`: execution trail;
+- `recovery-log.jsonl`: explicit repair/recovery events;
 - `state.json`: source of truth when deeper diagnosis is needed.
 
 #### Steering Commands
@@ -1003,6 +1005,7 @@ Research Mode может создавать несколько типов арт
   анализа;
 - `task-playbook.md`: операторское представление состояния и следующего шага;
 - `runs.tsv`: след запусков;
+- `recovery-log.jsonl`: явные события repair/recovery;
 - `final-report.md`: синтезированный кандидат или утверждённый отчёт, если он
   уже создан.
 
@@ -1234,6 +1237,7 @@ python3 scripts/research_mode.py render-prompt --id <research-id>
 
 - `task-playbook.md`: текущее операторское руководство и следующий шаг;
 - `runs.tsv`: след запусков;
+- `recovery-log.jsonl`: явные события repair/recovery;
 - `state.json`: источник истины для глубокой диагностики.
 
 #### Управление направлением исследования

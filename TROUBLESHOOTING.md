@@ -29,6 +29,7 @@ Then inspect task-local surfaces:
 
 - `task-playbook.md`;
 - `runs.tsv`;
+- `recovery-log.jsonl`;
 - `state.json`;
 - `final-report.md`;
 - `workspace/` artifacts only when the operator needs deeper evidence.
@@ -103,6 +104,7 @@ Checks:
 - `transactions.finish.status`;
 - `.tmp/result-<run-id>.json`;
 - latest row in `runs.tsv`;
+- latest row in `recovery-log.jsonl`;
 - any recovery note under `workspace/`.
 
 Safe actions:
@@ -381,6 +383,7 @@ artifacts могли разойтись.
 
 - `task-playbook.md`;
 - `runs.tsv`;
+- `recovery-log.jsonl`;
 - `state.json`;
 - `final-report.md`;
 - артефакты `workspace/` только тогда, когда оператору нужны более глубокие
@@ -456,6 +459,7 @@ python3 scripts/research_mode.py stop --id <research-id>
 - возраст блокировки и stale timeout;
 - `transactions.finish.status`;
 - последняя строка в `runs.tsv`;
+- последняя строка в `recovery-log.jsonl`;
 - recovery note внутри `workspace/`.
 
 Безопасные действия:

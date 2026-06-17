@@ -473,6 +473,9 @@ def build_summary_payload(
                 "last_recovery_result_file"
             ),
             "last_recovery_at": (state.get("artifacts") or {}).get("last_recovery_at"),
+            "last_recovery_log_path": (state.get("artifacts") or {}).get(
+                "last_recovery_log_path"
+            ),
             "last_pending_result_file": (state.get("artifacts") or {}).get(
                 "last_pending_result_file"
             ),
@@ -878,6 +881,9 @@ def render_summary_text(summary: dict[str, Any]) -> str:
     recovery_note_path = artifacts.get("last_recovery_note_path")
     if recovery_note_path:
         lines.append(f"Recovery note: {recovery_note_path}")
+    recovery_log_path = artifacts.get("last_recovery_log_path")
+    if recovery_log_path:
+        lines.append(f"Recovery log: {recovery_log_path}")
     pending_result_file = artifacts.get("last_pending_result_file")
     if pending_result_file:
         lines.append(f"Recovered pending result: {pending_result_file}")

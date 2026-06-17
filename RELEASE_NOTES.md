@@ -26,6 +26,8 @@ License: Apache License, Version 2.0.
   only for valid stale pending worker results, flags invalid pending payloads
   for manual review, and blocks `resume` when a paused task has unresolved
   pending-result inconsistency.
+- Added `recovery-log.jsonl` as an inspectable task-local recovery log for
+  applied or rejected pending worker results.
 
 ### v0.2.3 - 2026-06-16
 
@@ -193,6 +195,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
   для валидных stale pending worker results, invalid pending payloads отправляет
   на manual review, а `resume` блокируется, если paused-задача имеет
   нерешённое pending-result расхождение.
+- Добавлен `recovery-log.jsonl`: task-local recovery log для применённых или
+  отклонённых pending worker results.
 
 ### v0.2.3 - 2026-06-16
 
