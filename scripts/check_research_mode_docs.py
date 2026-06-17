@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shlex
 import sys
@@ -22,6 +23,8 @@ REQUIRED_DOC_PATHS = [
     SKILL_DIR / "README.md",
     SKILL_DIR / "TROUBLESHOOTING.md",
     SKILL_DIR / "ARCHITECTURE.md",
+    SKILL_DIR / "docs" / "CLI.md",
+    SKILL_DIR / "docs" / "STATE_VERSIONING.md",
     SKILL_DIR / "RELEASING.md",
     SKILL_DIR / "RELEASE_NOTES.md",
     SKILL_DIR / "LICENSE",
@@ -34,6 +37,14 @@ REQUIRED_DOC_PATHS = [
     SKILL_DIR / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml",
     SKILL_DIR / ".github" / "ISSUE_TEMPLATE" / "feature_request.yml",
     SKILL_DIR / ".github" / "ISSUE_TEMPLATE" / "security_hardening.yml",
+]
+
+REQUIRED_SCHEMA_PATHS = [
+    SKILL_DIR / "schemas" / "state.v2.schema.json",
+    SKILL_DIR / "schemas" / "worker-result.v1.schema.json",
+    SKILL_DIR / "schemas" / "adequacy.v1.schema.json",
+    SKILL_DIR / "schemas" / "finalization.v1.schema.json",
+    SKILL_DIR / "schemas" / "delivery-intent.v1.schema.json",
 ]
 
 OPTIONAL_ASSET_PATHS = [
@@ -52,6 +63,32 @@ FORBIDDEN_PATTERNS = {
     r"Создать demo-задачу": "README should be chat-first, not CLI-first",
     r"Взять одну рабочую блокировку": "README should not present worker lease acquisition as user quickstart",
 }
+
+PUBLIC_PRIVATE_MARKER_PATTERNS = {
+    r"/home/clawdbot": "public files must not expose the maintainer host path",
+    r"/Users/[A-Za-z0-9_.-]+": "public files must not expose macOS home paths",
+    r"C:\\\\Users\\\\": "public files must not expose Windows home paths",
+    r"channel:[A-Za-z0-9_-]+": "public files must not expose messaging target ids",
+    r"ghp_[A-Za-z0-9_]+": "public files must not expose GitHub tokens",
+    r"xox[baprs]-[A-Za-z0-9-]+": "public files must not expose Slack tokens",
+    r"OPENAI_API_KEY=": "public files must not expose API keys",
+    r"ANTHROPIC_API_KEY=": "public files must not expose API keys",
+}
+
+PUBLIC_PRIVATE_MARKER_GLOBS = [
+    "README.md",
+    "SECURITY.md",
+    "ROADMAP.md",
+    "CONTRIBUTING.md",
+    "RELEASE_NOTES.md",
+    "docs/**/*.md",
+    "schemas/*.json",
+    "examples/**/*.md",
+    "examples/**/*.json",
+    "examples/**/*.jsonl",
+    "examples/**/*.py",
+    ".github/ISSUE_TEMPLATE/*.yml",
+]
 
 REQUIRED_SNIPPETS = {
     "SKILL.md": [
@@ -123,6 +160,9 @@ REQUIRED_SNIPPETS = {
         "attach-url-as-md` принимает только URL с `http://` и `https://` и блокирует",
         "включая redirect targets",
         "ARCHITECTURE.md",
+        "docs/CLI.md",
+        "docs/STATE_VERSIONING.md",
+        "schemas/",
         "TROUBLESHOOTING.md",
         "RELEASING.md",
         "RELEASE_NOTES.md",
@@ -140,6 +180,7 @@ REQUIRED_SNIPPETS = {
         "check_research_mode_docs.py",
         "check_research_mode.sh",
         "CodeQL is not enabled in the baseline",
+        "`prepare-runtime` may create a task-local virtual",
     ],
     "ROADMAP.md": [
         "[English](#english) | [Русский](#русский)",
@@ -185,6 +226,23 @@ REQUIRED_SNIPPETS = {
         "Research Adequacy Gate",
         "result.adequacy",
         "Проверка достаточности исследования",
+    ],
+    "docs/CLI.md": [
+        "[English](#english) | [Русский](#русский)",
+        "Stable Operator Surface",
+        "Стабильная операторская поверхность",
+        "begin`, `finish`, and `fail`",
+        "`render-prompt`",
+        "prepare-runtime --package",
+        "not the normal user entrypoint",
+    ],
+    "docs/STATE_VERSIONING.md": [
+        "[English](#english) | [Русский](#русский)",
+        "Current public task state uses `version: 2`",
+        "state_version",
+        "lazy normalization",
+        "scripts/selftest/test_state_compatibility.py",
+        "Текущее публичное состояние задачи использует `version: 2`",
     ],
     "TROUBLESHOOTING.md": [
         "[English](#english) | [Русский](#русский)",
@@ -282,6 +340,8 @@ REQUIRED_SNIPPETS = {
         "tokens, webhooks, chat ids",
         "URL capture accepts only `http://` and `https://` and blocks local",
         "task-local",
+        "prepare-runtime --package",
+        "public/package-facing summaries",
         "untrusted data",
         "CodeQL is not enabled by default",
         "private security advisory",
@@ -395,6 +455,23 @@ def _validate_required_snippets(docs: dict[Path, str]) -> list[str]:
     return errors
 
 
+def _validate_no_private_markers() -> list[str]:
+    errors: list[str] = []
+    paths: set[Path] = set()
+    for pattern in PUBLIC_PRIVATE_MARKER_GLOBS:
+        paths.update(SKILL_DIR.glob(pattern))
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for pattern, reason in PUBLIC_PRIVATE_MARKER_PATTERNS.items():
+            if re.search(pattern, text):
+                errors.append(
+                    f"{_relative(path)}: private marker pattern {pattern!r}: {reason}"
+                )
+    return errors
+
+
 def _validate_documented_commands(docs: dict[Path, str]) -> list[str]:
     commands = _command_names()
     errors: list[str] = []
@@ -482,6 +559,138 @@ def _validate_documented_bash_blocks(docs: dict[Path, str]) -> list[str]:
     return errors
 
 
+def _json_type_matches(value: object, expected: object) -> bool:
+    if isinstance(expected, list):
+        return any(_json_type_matches(value, item) for item in expected)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    return True
+
+
+def _validate_object_contract(
+    schema: dict[str, object], data: object, data_path: Path
+) -> list[str]:
+    if not isinstance(data, dict):
+        return [f"{_relative(data_path)}: expected JSON object"]
+
+    errors: list[str] = []
+    required = schema.get("required", [])
+    if not isinstance(required, list):
+        errors.append(f"{_relative(data_path)}: schema required must be a list")
+        required = []
+    for field in required:
+        if isinstance(field, str) and field not in data:
+            errors.append(f"{_relative(data_path)}: missing required field {field!r}")
+
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return errors
+
+    for field, property_schema in properties.items():
+        if field not in data or not isinstance(property_schema, dict):
+            continue
+        expected_type = property_schema.get("type")
+        if expected_type and not _json_type_matches(data[field], expected_type):
+            errors.append(
+                f"{_relative(data_path)}: field {field!r} does not match "
+                f"schema type {expected_type!r}"
+            )
+    return errors
+
+
+def _load_schema(path: Path) -> tuple[dict[str, object] | None, list[str]]:
+    errors: list[str] = []
+    if not path.exists():
+        return None, [f"missing schema file: {_relative(path)}"]
+    try:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return None, [f"{_relative(path)}: invalid JSON: {exc}"]
+    if not isinstance(schema, dict):
+        return None, [f"{_relative(path)}: schema root must be an object"]
+    for key in ("$schema", "title", "type", "properties"):
+        if key not in schema:
+            errors.append(f"{_relative(path)}: missing schema metadata {key!r}")
+    if schema.get("type") != "object":
+        errors.append(f"{_relative(path)}: top-level schema type must be object")
+    return schema, errors
+
+
+def _validate_json_contracts() -> list[str]:
+    errors: list[str] = []
+    schemas: dict[str, dict[str, object]] = {}
+    for path in REQUIRED_SCHEMA_PATHS:
+        schema, schema_errors = _load_schema(path)
+        errors.extend(schema_errors)
+        if schema is not None:
+            schemas[path.name] = schema
+
+    state_schema = schemas.get("state.v2.schema.json")
+    worker_schema = schemas.get("worker-result.v1.schema.json")
+    adequacy_schema = schemas.get("adequacy.v1.schema.json")
+    finalization_schema = schemas.get("finalization.v1.schema.json")
+    delivery_schema = schemas.get("delivery-intent.v1.schema.json")
+
+    for path in sorted((SKILL_DIR / "examples").glob("*/research-trace/state.json")):
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{_relative(path)}: invalid JSON: {exc}")
+            continue
+        if state_schema is not None:
+            errors.extend(_validate_object_contract(state_schema, state, path))
+        if isinstance(state, dict):
+            for intent in state.get("delivery_intents", []) or []:
+                if delivery_schema is not None:
+                    errors.extend(_validate_object_contract(delivery_schema, intent, path))
+            if isinstance(state.get("adequacy"), dict) and adequacy_schema is not None:
+                errors.extend(
+                    _validate_object_contract(adequacy_schema, state["adequacy"], path)
+                )
+            if isinstance(state.get("finalization"), dict) and finalization_schema is not None:
+                errors.extend(
+                    _validate_object_contract(
+                        finalization_schema, state["finalization"], path
+                    )
+                )
+
+    for path in sorted((SKILL_DIR / "examples").glob("*/research-trace/results/*.json")):
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{_relative(path)}: invalid JSON: {exc}")
+            continue
+        if worker_schema is not None:
+            errors.extend(_validate_object_contract(worker_schema, result, path))
+        if isinstance(result, dict):
+            if isinstance(result.get("adequacy"), dict) and adequacy_schema is not None:
+                errors.extend(
+                    _validate_object_contract(adequacy_schema, result["adequacy"], path)
+                )
+            if (
+                isinstance(result.get("finalization"), dict)
+                and finalization_schema is not None
+            ):
+                errors.extend(
+                    _validate_object_contract(
+                        finalization_schema, result["finalization"], path
+                    )
+                )
+    return errors
+
+
 def _validate_optional_assets() -> list[str]:
     errors: list[str] = []
     for path in OPTIONAL_ASSET_PATHS:
@@ -495,8 +704,10 @@ def main() -> int:
     errors = [
         *_validate_no_forbidden(docs),
         *_validate_required_snippets(docs),
+        *_validate_no_private_markers(),
         *_validate_documented_commands(docs),
         *_validate_documented_bash_blocks(docs),
+        *_validate_json_contracts(),
         *_validate_optional_assets(),
     ]
     if errors:

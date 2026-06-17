@@ -15,6 +15,12 @@ Security expectations:
   tokens, webhooks, chat ids, or owner-specific configuration.
 - Keep extra packages task-local. Review unusual or risky packages before
   installation.
+- Treat `prepare-runtime --package` as a controlled capability. It can create a
+  task-local venv, invoke Python tooling, and install requested packages, so the
+  decision to install a package must come from an operator or trusted workflow,
+  not from untrusted retrieved content.
+- Treat absolute interpreter, venv, and workspace paths as local diagnostics.
+  Prefer task-relative or redacted paths in public/package-facing summaries.
 - URL capture accepts only `http://` and `https://` and blocks local or private
   network hosts, including redirect targets; local files should be attached
   through explicit file helpers.
@@ -47,6 +53,13 @@ cron. Он хранит состояние задач и артефакты на
   конкретного владельца.
 - Дополнительные пакеты держать локальными для задачи. Необычные или рискованные пакеты
   проверять перед установкой.
+- `prepare-runtime --package` — controlled capability. Она может создавать
+  task-local venv, запускать Python tooling и устанавливать requested packages,
+  поэтому решение об установке package должно приходить от оператора или
+  доверенного workflow, а не из недоверенного retrieved content.
+- Абсолютные пути interpreter, venv и workspace считать локальной диагностикой.
+  В public/package-facing summaries предпочитать task-relative или redacted
+  paths.
 - Захват URL принимает только `http://` и `https://` и блокирует локальные или
   приватные сетевые хосты, включая redirect targets; локальные файлы должны
   прикрепляться через явные file helpers.

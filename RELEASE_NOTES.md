@@ -15,6 +15,10 @@ License: Apache License, Version 2.0.
   hardening proposals.
 - Documented the current lightweight security baseline: release gate plus
   Bandit smoke scan, with CodeQL not enabled by default.
+- Added public CLI, state-versioning, and JSON schema contract docs for task
+  state, worker results, adequacy, finalization, and delivery intents.
+- Clarified the `prepare-runtime --package` threat model as a controlled
+  task-local capability, not an accidental code-execution surface.
 
 ### v0.2.3 - 2026-06-16
 
@@ -171,6 +175,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
   hardening proposals.
 - Документирован текущий лёгкий security baseline: release gate плюс Bandit
   smoke scan; CodeQL по умолчанию не включён.
+- Добавлены публичные docs для CLI, state versioning и JSON schema contracts:
+  task state, worker results, adequacy, finalization и delivery intents.
+- Уточнён threat model для `prepare-runtime --package`: это controlled
+  task-local capability, а не случайная поверхность выполнения кода.
 
 ### v0.2.3 - 2026-06-16
 
