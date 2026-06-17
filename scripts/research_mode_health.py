@@ -47,6 +47,24 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if not task.task_playbook_path.exists():
+        findings.append(
+            {
+                "code": "missing_task_playbook",
+                "severity": "warning",
+                "status": "repair_needed",
+                "message": "The derived task playbook is missing and can be regenerated.",
+                "details": {"path": str(task.task_playbook_path)},
+            }
+        )
+        recommended_actions.append(
+            {
+                "kind": "repair",
+                "command": "recover --refresh-derived",
+                "note": "Regenerate derived operator surfaces without changing task state.",
+            }
+        )
+
     pending_result = _pending_result_file(task.task_dir, state)
     if pending_result is not None:
         lock = state.get("lock") or {}

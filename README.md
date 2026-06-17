@@ -446,6 +446,15 @@ python3 scripts/research_mode.py recover \
   --apply-pending-result
 ```
 
+If only derived operator files are missing, regenerate them without changing
+`state.json`:
+
+```bash
+python3 scripts/research_mode.py recover \
+  --id <research-id> \
+  --refresh-derived
+```
+
 Do not keep working indefinitely inside one lease. The system is designed around
 bounded iterations.
 

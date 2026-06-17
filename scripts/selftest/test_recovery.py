@@ -216,3 +216,42 @@ def test_resume_blocks_paused_task_with_pending_result(root: Path) -> None:
         "manual_review_needed",
         "paused pending state should require manual review",
     )
+
+
+def test_recover_refresh_derived_restores_missing_task_playbook(root: Path) -> None:
+    task_id = "refresh-derived-playbook"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Refresh missing derived artifacts",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    playbook_path = root / task_id / "task-playbook.md"
+    playbook_path.unlink()
+    before = state_path.read_text(encoding="utf-8")
+
+    recovered = json_out(
+        run(
+            "recover",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--refresh-derived",
+        )
+    )
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "refresh-derived should not mutate state")
+    assert_eq(recovered["status"], "refreshed", "refresh-derived status")
+    assert_true(playbook_path.exists(), "refresh-derived should recreate task playbook")
+    assert_true(
+        str(playbook_path) in recovered.get("refreshed_artifacts", []),
+        "refresh-derived should report refreshed playbook",
+    )

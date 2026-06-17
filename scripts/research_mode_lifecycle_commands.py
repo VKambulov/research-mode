@@ -1292,10 +1292,31 @@ def recover_pending_result(
     }
 
 
+def recover_derived_artifacts(task: ResearchTask) -> dict[str, Any]:
+    before_exists = task.task_playbook_path.exists()
+    refresh_task_playbook(task)
+    refreshed_artifacts = [str(task.task_playbook_path)]
+    return {
+        "status": "refreshed" if not before_exists else "already_current",
+        "refreshed_artifacts": refreshed_artifacts,
+        "state_mutated": False,
+    }
+
+
 def recover_command(args: argparse.Namespace) -> int:
     task = ResearchTask.from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
     )
+    if bool(getattr(args, "apply_pending_result", False)) and bool(
+        getattr(args, "refresh_derived", False)
+    ):
+        raise ValidationError(
+            "recover accepts only one repair action at a time: --apply-pending-result or --refresh-derived"
+        )
+    if bool(getattr(args, "refresh_derived", False)):
+        result = recover_derived_artifacts(task)
+        json_dump(result)
+        return 0
     result = recover_pending_result(
         task, apply_pending_result=bool(args.apply_pending_result)
     )

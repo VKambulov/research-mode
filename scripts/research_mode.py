@@ -262,6 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument("--id")
     recover.add_argument("--path")
     recover.add_argument("--apply-pending-result", action="store_true")
+    recover.add_argument("--refresh-derived", action="store_true")
     recover.set_defaults(func=recover_command)
 
     record_notification = subparsers.add_parser(

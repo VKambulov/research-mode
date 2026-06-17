@@ -28,6 +28,8 @@ License: Apache License, Version 2.0.
   pending-result inconsistency.
 - Added `recovery-log.jsonl` as an inspectable task-local recovery log for
   applied or rejected pending worker results.
+- Added `recover --refresh-derived` to regenerate missing derived operator
+  surfaces, such as `task-playbook.md`, without mutating task state.
 
 ### v0.2.3 - 2026-06-16
 
@@ -197,6 +199,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
   нерешённое pending-result расхождение.
 - Добавлен `recovery-log.jsonl`: task-local recovery log для применённых или
   отклонённых pending worker results.
+- Добавлен `recover --refresh-derived`, чтобы пересобирать missing derived
+  operator surfaces вроде `task-playbook.md` без изменения task state.
 
 ### v0.2.3 - 2026-06-16
 

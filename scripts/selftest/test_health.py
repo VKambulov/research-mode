@@ -284,3 +284,36 @@ def test_reconcile_is_read_only_health_alias(root: Path) -> None:
         "reconcile actions should match health",
     )
     assert_eq(reconcile["read_only"], True, "reconcile should be read-only")
+
+
+def test_health_reports_missing_task_playbook_as_repair_needed(root: Path) -> None:
+    task_id = "health-missing-playbook"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Health should report missing derived playbook",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    playbook_path = root / task_id / "task-playbook.md"
+    playbook_path.unlink()
+    before = state_path.read_text(encoding="utf-8")
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id))
+    after = state_path.read_text(encoding="utf-8")
+
+    assert_eq(after, before, "health must not mutate missing playbook state")
+    assert_eq(health["status"], "repair_needed", "missing playbook status")
+    assert_true(
+        any(finding.get("code") == "missing_task_playbook" for finding in health["findings"]),
+        "health should expose missing_task_playbook",
+    )
+    assert_true(
+        any(action.get("command") == "recover --refresh-derived" for action in health["recommended_actions"]),
+        "health should recommend refresh-derived recovery",
+    )

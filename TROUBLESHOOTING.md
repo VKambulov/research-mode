@@ -112,6 +112,8 @@ Safe actions:
 - wait if the lease is fresh and a worker is still active;
 - if `.tmp/result-<run-id>.json` exists and the lock is stale, run
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- if `health` reports `missing_task_playbook`, run
+  `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - if `health` reports `invalid_pending_result`, keep the pending file for bug
   context and inspect manually before running recovery;
 - use `fail` if the leased run is known to be broken and the run id is known;
@@ -467,6 +469,8 @@ python3 scripts/research_mode.py stop --id <research-id>
 - подождать, если lease свежий и worker ещё работает;
 - если `.tmp/result-<run-id>.json` существует и блокировка stale, запустить
   `python3 scripts/research_mode.py recover --id <research-id> --apply-pending-result`;
+- если `health` сообщает `missing_task_playbook`, запустить
+  `python3 scripts/research_mode.py recover --id <research-id> --refresh-derived`;
 - если `health` сообщает `invalid_pending_result`, сохранить pending-файл как
   контекст для bug report и проверить вручную до recovery;
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
