@@ -8,7 +8,13 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
-- No changes yet.
+- Added public `ROADMAP.md` and `CONTRIBUTING.md` so GitHub readers can see
+  project direction, development checks, public contracts, and privacy rules
+  without private workspace notes.
+- Added GitHub issue templates for bug reports, feature requests, and security
+  hardening proposals.
+- Documented the current lightweight security baseline: release gate plus
+  Bandit smoke scan, with CodeQL not enabled by default.
 
 ### v0.2.3 - 2026-06-16
 
@@ -158,7 +164,13 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
-- Изменений пока нет.
+- Добавлены публичные `ROADMAP.md` и `CONTRIBUTING.md`: теперь GitHub-читатель
+  видит направление проекта, проверки разработки, публичные контракты и правила
+  приватности без приватных workspace-заметок.
+- Добавлены GitHub issue templates для bug reports, feature requests и security
+  hardening proposals.
+- Документирован текущий лёгкий security baseline: release gate плюс Bandit
+  smoke scan; CodeQL по умолчанию не включён.
 
 ### v0.2.3 - 2026-06-16
 

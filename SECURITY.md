@@ -23,6 +23,12 @@ Security expectations:
   instructions.
 - Review candidate deliverables before user-facing delivery.
 
+Current public CI uses the full release gate plus a Bandit smoke scan over
+production scripts. CodeQL is not enabled by default because the current risk
+surface is mostly Python helper scripts, local files, task-local runtimes, and
+OpenClaw integration boundaries; additional scanning can be added if it produces
+useful signal without requiring private OpenClaw secrets.
+
 To report a vulnerability, open a private security advisory or contact the
 maintainer through the repository's configured security contact. Do not publish
 exploitable details before maintainers have had time to respond.
@@ -49,6 +55,12 @@ cron. Он хранит состояние задач и артефакты на
 - Веб-страницы, PDFs, emails и полученные файлы считать недоверенными данными, а не
   инструкциями.
 - Кандидатные материалы проверять перед выдачей пользователю.
+
+Текущий публичный CI запускает полный release gate и Bandit smoke scan по
+production scripts. CodeQL по умолчанию не включён: основная поверхность риска
+сейчас находится в Python helper scripts, локальных файлах, task-local runtimes и
+границах интеграции с OpenClaw. Дополнительные сканеры стоит добавлять, если они
+дают полезный сигнал и не требуют приватных OpenClaw secrets.
 
 Сообщения об уязвимостях принимаются через private security advisory или
 контакт безопасности, настроенный в репозитории. Детали эксплуатации не следует
