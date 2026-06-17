@@ -41,7 +41,9 @@ operator, or task-specific context.
 ### Later
 
 - Improve portability beyond the current Linux/OpenClaw-first baseline,
-  including lock abstractions and a cross-platform state strategy.
+  especially Windows compatibility: isolate POSIX-specific locking such as
+  `fcntl`, evaluate Windows-friendly file locking, and define a cross-platform
+  state strategy.
 - Revisit larger-scale storage if traces become too large for simple task-local
   files, with a migration path toward SQLite or PostgreSQL-backed views.
 - Consider a `pyproject.toml` and CLI entrypoint only if it improves maintainer
@@ -94,8 +96,10 @@ Roadmap ниже описывает публичное направление Gi
 
 ### Позже
 
-- Улучшить portability за пределами текущего Linux/OpenClaw-first baseline:
-  абстракции блокировок и cross-platform strategy для состояния.
+- Улучшить portability за пределами текущего Linux/OpenClaw-first baseline,
+  особенно Windows compatibility: изолировать POSIX-specific locking вроде
+  `fcntl`, изучить Windows-friendly file locking и определить cross-platform
+  strategy для состояния.
 - Вернуться к storage scaling, если traces станут слишком большими для простых
   task-local files, с возможным migration path к SQLite или PostgreSQL-backed
   представлениям.
