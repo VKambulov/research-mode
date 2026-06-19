@@ -23,6 +23,17 @@ operator, or task-specific context.
   `repair_needed`, `manual_review_needed`, `blocked`, and
   `fresh_continuation_recommended`.
 
+### Completed on main after v0.3.0
+
+- Added the default preflight gate for new tasks, including
+  `research-preflight.md`, `--skip-preflight`, visible preflight state in
+  operator surfaces, and skill-local `RULES.md` support through
+  `RULES.example.md`.
+- Added `operator_attention` to `summary --format json` so monitors can
+  identify stale active runs and follow a clear recovery action.
+- Updated public status messaging to make research stability, observability,
+  and recovery the current project priority.
+
 ### Now
 
 - Make research stability the primary release gate. Long-running recurring tasks
@@ -87,6 +98,16 @@ Roadmap ниже описывает публичное направление Gi
 - Улучшено восстановление после частичных сбоев: оператор видит `ok`,
   `repair_needed`, `manual_review_needed`, `blocked` и
   `fresh_continuation_recommended`.
+
+### Выполнено в main после v0.3.0
+
+- Добавлен preflight gate по умолчанию для новых задач: `research-preflight.md`,
+  `--skip-preflight`, видимое состояние preflight в операторских представлениях
+  и skill-local `RULES.md` через публичный шаблон `RULES.example.md`.
+- В `summary --format json` добавлен `operator_attention`, чтобы наблюдатели
+  могли видеть stale active run и понятное действие для восстановления.
+- Публичный статус проекта уточнён: текущий приоритет — стабильность,
+  наблюдаемость и восстановимость исследований.
 
 ### Сейчас
 

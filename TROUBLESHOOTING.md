@@ -15,6 +15,7 @@ Use the highest-level surfaces first:
 python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py preflight --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
 
@@ -66,6 +67,7 @@ Checks:
 python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py preflight --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
 
@@ -127,6 +129,33 @@ Safe actions:
 - use `fail` if the leased run is known to be broken and the run id is known;
 - avoid starting another worker blindly over an active lock;
 - if the state is inconsistent, inspect `task-playbook.md` before manual repair.
+
+### Preflight Paused Or Blocked The Task
+
+Meaning:
+
+- the first worker lease ran `phase=preflight`;
+- `result.preflight.decision` was `needs_setup` or `blocked`;
+- the task moved to `paused`, and any bound schedule was suspended.
+
+Checks:
+
+```bash
+python3 scripts/research_mode.py preflight --id <research-id> --format text
+python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py status --id <research-id> --format json
+```
+
+Safe actions:
+
+- read `workspace/preflight/research-preflight.md` and the blockers/warnings in
+  `summary`;
+- install or configure only the missing critical tool or input, if that action
+  is safe and intended;
+- use `resume` only after the blocker is handled;
+- use `--skip-preflight` only for a fresh task when the operator intentionally
+  accepts the missing guardrail;
+- do not edit `state.json` just to force the task into `search`.
 
 ### Task Is Waiting In The Global Queue
 
@@ -377,6 +406,7 @@ stage is safe to ignore.
 python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py preflight --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
 
@@ -431,6 +461,7 @@ state пригоден, но stale run не оставил pending result для
 python3 scripts/research_mode.py health --id <research-id> --format text
 python3 scripts/research_mode.py reconcile --id <research-id> --format text
 python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py preflight --id <research-id> --format text
 python3 scripts/research_mode.py status --id <research-id> --format text
 ```
 
@@ -492,6 +523,34 @@ python3 scripts/research_mode.py stop --id <research-id>
 - использовать `fail`, если известно, что запуск сломан, и известен run id;
 - не запускать ещё один worker вслепую поверх активной блокировки;
 - при противоречивом состоянии сначала читать `task-playbook.md`.
+
+### Preflight поставил задачу на паузу или заблокировал её
+
+Значение:
+
+- первая рабочая блокировка прошла в `phase=preflight`;
+- `result.preflight.decision` был `needs_setup` или `blocked`;
+- задача перешла в `paused`, а привязанное расписание приостановлено.
+
+Проверки:
+
+```bash
+python3 scripts/research_mode.py preflight --id <research-id> --format text
+python3 scripts/research_mode.py summary --id <research-id> --format text
+python3 scripts/research_mode.py status --id <research-id> --format json
+```
+
+Безопасные действия:
+
+- прочитать `workspace/preflight/research-preflight.md` и blockers/warnings в
+  `summary`;
+- установить или настроить только критически недостающий инструмент/входной
+  материал, если это безопасно и действительно нужно;
+- использовать `resume` только после устранения blocker;
+- использовать `--skip-preflight` только для новой задачи, когда оператор
+  осознанно принимает отсутствие этой проверки;
+- не редактировать `state.json` вручную только ради принудительного перехода в
+  `search`.
 
 ### Задача ждёт global queue
 

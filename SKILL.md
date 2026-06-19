@@ -57,7 +57,8 @@ Current hardened baseline:
    - write result JSON
    - `finish`
    - `fail` if the leased iteration breaks
-4. Use `summary` / `draft-report` / `status` for operator inspection instead of manually stitching files.
+4. Use `summary` / `preflight` / `health` / `reconcile` / `draft-report` / `status`
+   for operator inspection instead of manually stitching files.
 5. Use `pause` / `resume` / `stop` and working-memory mutation helpers instead of hand-editing state.
 
 ## Command families that matter
@@ -78,9 +79,17 @@ Current hardened baseline:
 - `list`
 - `status`
 - `summary`
+- `preflight`
+- `health`
+- `reconcile`
+- `queue-status`
 - `draft-report`
 - `render-prompt`
 - `prepare-runtime`
+
+### Recovery handoff
+- `recover --apply-pending-result`
+- `recover --refresh-derived`
 
 ### Review and delivery
 - `approve`

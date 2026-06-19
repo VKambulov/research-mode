@@ -42,6 +42,7 @@ Include in the public package:
 - `AGENTS.md`
 - `ROADMAP.md`
 - `CONTRIBUTING.md`
+- `RULES.example.md`
 - `.gitignore`
 - `pyrightconfig.json`
 - `assets/`
@@ -122,6 +123,7 @@ Before asking someone else to try the package:
 - [ ] README explains chat-first usage, launch parameters, review, common work patterns, launch modes, CLI command families, task states, scheduling, delivery, and quality gates.
 - [ ] README mentions that GitHub Actions runs the release gate and Bandit security smoke scan.
 - [ ] `TROUBLESHOOTING.md` explains diagnosis order, common failure modes, and safe repair paths.
+- [ ] `TROUBLESHOOTING.md` covers preflight `needs_setup` / `blocked` states.
 - [ ] `ARCHITECTURE.md` explains the system with diagrams and calibrated comparisons.
 - [ ] `RELEASING.md` explains the OpenClaw skill package boundary.
 - [ ] `SECURITY.md` explains task artifact, package, and untrusted-input safety.
@@ -137,12 +139,15 @@ Before asking someone else to try the package:
 Run a clean task in a temporary root:
 
 1. Create a task.
-2. Begin one leased iteration.
-3. Finish with a human-ready Markdown report and passing finalization evidence.
-4. Confirm the task reaches `awaiting_review`.
-5. Confirm `summary --format text` shows `operator_next_action: review_candidate`.
-6. Approve the task.
-7. Confirm delivery state is consistent and no worker lease remains active.
+2. Confirm the first lease runs `phase=preflight`.
+3. Finish preflight with `result.preflight.decision="go"` and confirm the task
+   returns to the target phase.
+4. Begin a research iteration.
+5. Finish with a human-ready Markdown report and passing finalization evidence.
+6. Confirm the task reaches `awaiting_review`.
+7. Confirm `summary --format text` shows `operator_next_action: review_candidate`.
+8. Approve the task.
+9. Confirm delivery state is consistent and no worker lease remains active.
 
 ## Русский
 
@@ -176,6 +181,7 @@ Python-пакет, не самостоятельный демон, не разм
 - `AGENTS.md`
 - `ROADMAP.md`
 - `CONTRIBUTING.md`
+- `RULES.example.md`
 - `.gitignore`
 - `pyrightconfig.json`
 - `assets/`
@@ -254,6 +260,7 @@ repository лицензирован под Apache License, Version 2.0.
 - [ ] README ссылается на Apache License, Version 2.0 через `LICENSE`.
 - [ ] README объясняет использование из чата, параметры запуска, ревью, частые рабочие сценарии, варианты запуска, семейства CLI-команд, состояния задач, расписание, доставку и проверки качества.
 - [ ] `TROUBLESHOOTING.md` объясняет порядок диагностики, частые сбои и безопасные способы исправления.
+- [ ] `TROUBLESHOOTING.md` покрывает состояния preflight `needs_setup` / `blocked`.
 - [ ] `ARCHITECTURE.md` объясняет систему через схемы и аккуратные сравнения.
 - [ ] `RELEASING.md` объясняет состав пакета OpenClaw skill.
 - [ ] `SECURITY.md` объясняет безопасность артефактов задач, пакетов и недоверенных входных данных.
@@ -269,9 +276,12 @@ repository лицензирован под Apache License, Version 2.0.
 Прогнать чистую задачу во временной директории:
 
 1. Создать задачу.
-2. Начать одну рабочую итерацию с блокировкой.
-3. Завершить её с Markdown-отчётом для человека и успешными доказательствами финальной проверки.
-4. Проверить, что задача перешла в `awaiting_review`.
-5. Проверить, что `summary --format text` показывает `operator_next_action: review_candidate`.
-6. Утвердить задачу.
-7. Проверить, что состояние выдачи согласовано и активной рабочей блокировки больше нет.
+2. Проверить, что первая блокировка запускает `phase=preflight`.
+3. Завершить preflight с `result.preflight.decision="go"` и проверить, что
+   задача вернулась к целевой фазе.
+4. Начать рабочую итерацию.
+5. Завершить её с Markdown-отчётом для человека и успешными доказательствами финальной проверки.
+6. Проверить, что задача перешла в `awaiting_review`.
+7. Проверить, что `summary --format text` показывает `operator_next_action: review_candidate`.
+8. Утвердить задачу.
+9. Проверить, что состояние выдачи согласовано и активной рабочей блокировки больше нет.

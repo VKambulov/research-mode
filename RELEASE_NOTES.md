@@ -8,7 +8,22 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
-- No changes yet.
+- Added the default `preflight` gate for new tasks. The first worker lease now
+  records `result.preflight`, writes `workspace/preflight/research-preflight.md`,
+  and either continues, continues with warnings, pauses for setup, or blocks on a
+  critical missing condition.
+- Added `--skip-preflight` as a visible escape hatch for cheap tasks or
+  preflight troubleshooting; skipped preflight is recorded as
+  `preflight.decision="skipped"`.
+- Added skill-local `RULES.md` support with `RULES.example.md` as the public
+  template. The package reads only `RULES.md` in the skill directory and does
+  not create or overwrite it.
+- Exposed preflight state in `summary`, `status`, `task-playbook.md`, and the
+  read-only `preflight` command.
+- Added `operator_attention` to `summary --format json` so monitors can detect
+  stale active runs with clear recommended actions.
+- Updated README and roadmap status notes to state that the current project
+  priority is stable, observable, recoverable research runs.
 
 ### v0.3.0 - 2026-06-17
 
@@ -185,7 +200,23 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
-- Пока нет изменений.
+- Добавлен обязательный по умолчанию preflight gate для новых задач. Первая
+  рабочая блокировка теперь пишет `result.preflight`, создаёт
+  `workspace/preflight/research-preflight.md` и либо продолжает задачу, либо
+  продолжает с предупреждениями, либо ставит задачу на паузу/блокирует её при
+  критичном отсутствующем условии.
+- Добавлен `--skip-preflight` как видимый escape hatch для дешёвых задач или
+  обхода проблемы самого preflight; пропуск записывается как
+  `preflight.decision="skipped"`.
+- Добавлена поддержка skill-local `RULES.md`; публичный шаблон —
+  `RULES.example.md`. Пакет читает только `RULES.md` в директории скилла и не
+  создаёт/не перезаписывает его.
+- Состояние preflight выводится в `summary`, `status`, `task-playbook.md` и
+  read-only команде `preflight`.
+- В `summary --format json` добавлен `operator_attention`, чтобы наблюдатели
+  могли видеть stale active run и понятное рекомендуемое действие.
+- README и roadmap обновлены: текущий приоритет проекта — стабильное,
+  наблюдаемое и восстанавливаемое проведение исследований.
 
 ### v0.3.0 - 2026-06-17
 
