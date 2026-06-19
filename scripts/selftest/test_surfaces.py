@@ -1,6 +1,7 @@
 """Operator surfaces: revision diffs, evidence gaps, provenance, audit trail."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def test_adequacy_state_visible_in_summary_and_playbook(root: Path) -> None:
             "Check adequacy surfaces.",
             "--phase",
             "verify",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-surface-test"))
@@ -113,6 +115,319 @@ def test_adequacy_state_visible_in_summary_and_playbook(root: Path) -> None:
     playbook = (root / "adequacy-surface-test" / "task-playbook.md").read_text(encoding="utf-8")
     assert_in("## Adequacy", playbook, "playbook should expose adequacy section")
     assert_in("primary documentation missing", playbook, "playbook should include adequacy gap")
+
+
+def test_preflight_state_visible_in_summary_playbook_and_command(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-surface-test",
+            "--goal",
+            "Check preflight surfaces.",
+            "--skip-preflight",
+        )
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-surface-test",
+            "--format",
+            "json",
+        )
+    )
+    preflight = summary.get("preflight") or {}
+    assert_eq(preflight.get("decision"), "skipped", "summary should expose skipped decision")
+    assert_true(preflight.get("warnings"), "summary should expose skip warning")
+
+    summary_text = run(
+        "summary",
+        "--root",
+        str(root),
+        "--id",
+        "preflight-surface-test",
+        "--format",
+        "text",
+    ).stdout
+    assert_in("Preflight:", summary_text, "summary text should show preflight line")
+    assert_in("skipped", summary_text, "summary text should show skipped decision")
+
+    preflight_command = json_out(
+        run(
+            "preflight",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-surface-test",
+            "--format",
+            "json",
+        )
+    )
+    assert_eq(
+        preflight_command["preflight"]["decision"],
+        "skipped",
+        "preflight command should expose decision",
+    )
+
+    playbook = (root / "preflight-surface-test" / "task-playbook.md").read_text(encoding="utf-8")
+    assert_in("## Preflight", playbook, "playbook should expose preflight section")
+    assert_in("skipped", playbook, "playbook should show skipped preflight")
+
+
+def test_legacy_state_without_preflight_is_not_reported_as_pending(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "legacy-no-preflight",
+            "--goal",
+            "Legacy task without preflight state.",
+            "--skip-preflight",
+        )
+    )
+    state_path = root / "legacy-no-preflight" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("preflight", None)
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            "legacy-no-preflight",
+            "--format",
+            "json",
+        )
+    )
+    assert_eq(
+        summary["preflight"]["configured"],
+        False,
+        "summary should identify missing preflight as legacy/unconfigured",
+    )
+    summary_text = run(
+        "summary",
+        "--root",
+        str(root),
+        "--id",
+        "legacy-no-preflight",
+        "--format",
+        "text",
+    ).stdout
+    assert_in(
+        "Preflight: not configured",
+        summary_text,
+        "legacy state should not look like a pending preflight gate",
+    )
+
+
+def test_summary_exposes_stale_run_attention(root: Path) -> None:
+    task_id = "summary-stale-run"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Summary should surface stale execution health.",
+            "--stale-timeout-min",
+            "1",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    result_file = Path(lease["paths"]["result_file"])
+    assert_true(not result_file.exists(), "test setup should not create a result file")
+
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["lock"]["started_at"] = "2020-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    attention = summary.get("operator_attention") or {}
+    assert_eq(
+        attention.get("status"),
+        "fresh_continuation_recommended",
+        "summary should elevate stale no-result runs to operator attention",
+    )
+    conditions = attention.get("conditions") or []
+    assert_true(
+        any(item.get("code") == "stale_run_without_pending_result" for item in conditions),
+        "summary should expose stale_run_without_pending_result",
+    )
+    assert_true(
+        any(action.get("command") == "begin" for action in attention.get("recommended_actions") or []),
+        "summary should recommend a fresh begin continuation",
+    )
+
+    summary_text = run(
+        "summary",
+        "--root",
+        str(root),
+        "--id",
+        task_id,
+        "--format",
+        "text",
+    ).stdout
+    assert_in(
+        "Operator attention: fresh_continuation_recommended",
+        summary_text,
+        "summary text should show stale-run attention status",
+    )
+    assert_in(
+        "stale_run_without_pending_result",
+        summary_text,
+        "summary text should show stale-run condition code",
+    )
+
+
+def test_summary_uses_worker_timeout_for_effective_stale_attention(
+    root: Path,
+) -> None:
+    task_id = "summary-worker-timeout-stale"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Summary should not wait 30 minutes after a cron worker timeout.",
+            "--stale-timeout-min",
+            "30",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    result_file = Path(lease["paths"]["result_file"])
+    assert_true(not result_file.exists(), "test setup should not create a result file")
+
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["job"]["schedule_template"] = {"timeout_seconds": 300}
+    state["lock"]["started_at"] = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    lock = summary.get("lock") or {}
+    assert_eq(
+        lock.get("stale_timeout_min"),
+        30,
+        "summary should preserve the configured lock timeout",
+    )
+    assert_eq(
+        lock.get("effective_stale_timeout_min"),
+        6,
+        "summary should expose worker-timeout-adjusted stale timeout",
+    )
+    attention = summary.get("operator_attention") or {}
+    assert_eq(
+        attention.get("status"),
+        "fresh_continuation_recommended",
+        "summary should alert once the scheduled worker timeout plus grace has elapsed",
+    )
+
+
+def test_summary_does_not_alert_on_fresh_pending_result(root: Path) -> None:
+    task_id = "summary-fresh-pending"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Fresh pending worker results should not alert summary watchers.",
+            "--stale-timeout-min",
+            "30",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Worker wrote a fresh pending result.",
+                "next_angle": "Finish normally.",
+                "meaningful_progress": True,
+                "phase": "search",
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    attention = summary.get("operator_attention") or {}
+    assert_eq(
+        attention.get("status"),
+        "ok",
+        "summary should not alert on a pending result while the run is still fresh",
+    )
+    assert_eq(
+        attention.get("conditions"),
+        [],
+        "fresh pending results should remain a health diagnostic, not summary attention",
+    )
 
 
 def test_revision_diff_on_awaiting_review(root: Path) -> None:

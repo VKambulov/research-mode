@@ -8,7 +8,16 @@ from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
 from research_mode_finalization import build_finalization_surface
 from research_mode_task import ResearchTask
-from research_mode_utils import minutes_since, read_json, read_jsonl, read_tsv_rows
+from research_mode_utils import (
+    ValidationError,
+    effective_lock_stale_timeout_min,
+    minutes_since,
+    pending_result_path,
+    read_json,
+    read_jsonl,
+    read_tsv_rows,
+    scheduled_worker_timeout_seconds,
+)
 
 WARNING_GUIDANCE = {
     "review_state_contradiction": {
@@ -189,6 +198,112 @@ def compute_budget_phase(
     }
 
 
+def build_operator_attention(
+    task: ResearchTask,
+    state: dict[str, Any],
+    *,
+    lock_age_min: float | None = None,
+    is_stale: bool = False,
+) -> dict[str, Any]:
+    conditions: list[dict[str, Any]] = []
+    recommended_actions: list[dict[str, Any]] = []
+    lock = state.get("lock") or {}
+    run_id = lock.get("run_id")
+    running_with_held_lock = (
+        state.get("status") == "running"
+        and lock.get("status") == "held"
+        and bool(run_id)
+    )
+
+    if running_with_held_lock:
+        pending_result = None
+        pending_error = None
+        try:
+            pending_result = pending_result_path(task.tmp_dir, run_id)
+        except ValidationError as exc:
+            pending_error = str(exc)
+
+        if pending_error:
+            conditions.append(
+                {
+                    "code": "invalid_run_id",
+                    "severity": "error",
+                    "message": "The active lock run_id cannot be mapped to a safe pending result path.",
+                    "details": {
+                        "run_id": run_id,
+                        "error": pending_error,
+                    },
+                }
+            )
+            recommended_actions.append(
+                {
+                    "kind": "manual_review",
+                    "warning_code": "invalid_run_id",
+                    "note": "Inspect state.json before attempting recovery.",
+                }
+            )
+        elif pending_result is not None and pending_result.exists() and is_stale:
+            conditions.append(
+                {
+                    "code": "pending_result_available",
+                    "severity": "warning",
+                    "message": "A stale worker left a pending result that should be recovered before continuing.",
+                    "details": {
+                        "run_id": run_id,
+                        "result_file": str(pending_result),
+                        "lock_age_min": round(lock_age_min, 2)
+                        if lock_age_min is not None
+                        else None,
+                    },
+                }
+            )
+            recommended_actions.append(
+                {
+                    "kind": "repair",
+                    "command": "recover --apply-pending-result",
+                    "note": "Apply the pending result through the lifecycle recovery path.",
+                }
+            )
+        elif is_stale:
+            conditions.append(
+                {
+                    "code": "stale_run_without_pending_result",
+                    "severity": "warning",
+                    "message": "The active run is stale and has no pending worker result to recover.",
+                    "details": {
+                        "run_id": run_id,
+                        "lock_age_min": round(lock_age_min, 2)
+                        if lock_age_min is not None
+                        else None,
+                    },
+                }
+            )
+            recommended_actions.append(
+                {
+                    "kind": "fresh_continuation",
+                    "command": "begin",
+                    "note": "Start a fresh continuation; begin will abandon the stale run and lease new work.",
+                }
+            )
+
+    condition_codes = {str(item.get("code") or "") for item in conditions}
+    if "invalid_run_id" in condition_codes:
+        status = "manual_review_needed"
+    elif "pending_result_available" in condition_codes:
+        status = "repair_needed"
+    elif "stale_run_without_pending_result" in condition_codes:
+        status = "fresh_continuation_recommended"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "has_conditions": bool(conditions),
+        "conditions": conditions,
+        "recommended_actions": recommended_actions,
+    }
+
+
 def format_source_bullet(source: dict[str, Any]) -> str:
     title = source.get("title") or source.get("url") or "untitled source"
     url = source.get("url")
@@ -231,11 +346,17 @@ def build_summary_payload(
     )
     lock = state.get("lock") or {}
     lock_age_min = None
+    timeout_min = effective_lock_stale_timeout_min(state)
     is_stale = False
     if lock.get("status") == "held" and lock.get("started_at"):
         lock_age_min = minutes_since(lock.get("started_at"))
-        timeout_min = int(lock.get("stale_timeout_min") or 30)
         is_stale = lock_age_min is not None and lock_age_min > timeout_min
+    operator_attention = build_operator_attention(
+        task,
+        state,
+        lock_age_min=lock_age_min,
+        is_stale=is_stale,
+    )
     runtime_meta: dict[str, Any] = {}
     if task.runtime_meta_path.exists():
         try:
@@ -250,6 +371,18 @@ def build_summary_payload(
         adequacy_state.get("operator_next_action")
         or build_adequacy_operator_next_action(state, adequacy_state)
     )
+    preflight_state_raw = state.get("preflight")
+    preflight_configured = isinstance(preflight_state_raw, dict)
+    preflight_state = preflight_state_raw if preflight_configured else {}
+    preflight_artifact = preflight_state.get("artifact_markdown")
+    preflight_artifact_path = None
+    preflight_artifact_exists = False
+    if preflight_artifact:
+        artifact_path = Path(str(preflight_artifact))
+        if not artifact_path.is_absolute():
+            artifact_path = task.task_dir / artifact_path
+        preflight_artifact_path = str(artifact_path)
+        preflight_artifact_exists = artifact_path.exists()
     return {
         "id": state.get("id"),
         "title": state.get("title") or state.get("id"),
@@ -353,6 +486,20 @@ def build_summary_payload(
             "recommended_next_angle": adequacy_state.get("recommended_next_angle"),
             "blocking_reasons": adequacy_state.get("blocking_reasons") or [],
             "operator_next_action": adequacy_operator_next_action,
+        },
+        "preflight": {
+            "configured": preflight_configured,
+            "done": bool(preflight_state.get("done", False)),
+            "decision": preflight_state.get("decision"),
+            "iteration_index": int(preflight_state.get("iteration_index") or 0),
+            "iteration_limit": int(preflight_state.get("iteration_limit") or 0),
+            "artifact_markdown": preflight_artifact,
+            "artifact_path": preflight_artifact_path,
+            "artifact_exists": preflight_artifact_exists,
+            "warnings": preflight_state.get("warnings") or [],
+            "blockers": preflight_state.get("blockers") or [],
+            "target_phase": preflight_state.get("target_phase"),
+            "completed_at": preflight_state.get("completed_at"),
         },
         "finalization": build_finalization_surface(state),
         "delivery": {
@@ -485,11 +632,14 @@ def build_summary_payload(
             "run_id": lock.get("run_id"),
             "started_at": lock.get("started_at"),
             "stale_timeout_min": lock.get("stale_timeout_min"),
+            "effective_stale_timeout_min": timeout_min,
+            "worker_timeout_seconds": scheduled_worker_timeout_seconds(state),
             "lock_age_min": round(lock_age_min, 2)
             if lock_age_min is not None
             else None,
             "is_stale": is_stale,
         },
+        "operator_attention": operator_attention,
         "completion": (state.get("completion") or {}).get("last_validation"),
         "consistency": compute_consistency_warnings(state),
         "task_dir": str(task.task_dir),
@@ -523,15 +673,47 @@ def render_summary_text(summary: dict[str, Any]) -> str:
             f"Status: {summary['status']}",
         ]
     )
+    preflight = summary.get("preflight") or {}
+    if preflight.get("configured"):
+        decision = preflight.get("decision") or "-"
+        done = "done" if preflight.get("done") else "pending"
+        target = preflight.get("target_phase") or "-"
+        artifact = preflight.get("artifact_markdown") or "-"
+        lines.append(
+            f"Preflight: {done}, decision={decision}, target={target}, artifact={artifact}"
+        )
+        warnings = preflight.get("warnings") or []
+        if warnings:
+            lines.append(f"Preflight warnings: {'; '.join(str(w) for w in warnings[:3])}")
+        blockers = preflight.get("blockers") or []
+        if blockers:
+            lines.append(f"Preflight blockers: {'; '.join(str(b) for b in blockers[:3])}")
+    else:
+        lines.append("Preflight: not configured")
     lock_info = summary.get("lock") or {}
     if lock_info.get("status") == "held":
         age = lock_info.get("lock_age_min")
         stale = lock_info.get("is_stale")
-        timeout = lock_info.get("stale_timeout_min") or 30
+        timeout = (
+            lock_info.get("effective_stale_timeout_min")
+            or lock_info.get("stale_timeout_min")
+            or 30
+        )
         if age is not None:
             age_str = f"{age:.1f}m"
             stale_str = " (STALE)" if stale else " (active)"
             lines.append(f"Lock: held {age_str}{stale_str}, timeout={timeout}m")
+    attention = summary.get("operator_attention") or {}
+    if attention.get("status") and attention.get("status") != "ok":
+        lines.append(f"Operator attention: {attention.get('status')}")
+        for condition in (attention.get("conditions") or [])[:5]:
+            code = condition.get("code") or "unknown"
+            message = condition.get("message") or ""
+            lines.append(f"- {code}: {message}" if message else f"- {code}")
+        for action in (attention.get("recommended_actions") or [])[:3]:
+            label = action.get("command") or action.get("warning_code") or action.get("kind")
+            note = action.get("note") or ""
+            lines.append(f"Recommended action: {label} — {note}" if note else f"Recommended action: {label}")
     queue = summary.get("queue") or {}
     if queue.get("status") == "waiting":
         lines.append("Queue: waiting for global research worker")

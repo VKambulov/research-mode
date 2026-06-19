@@ -60,6 +60,7 @@ from research_mode_utils import (
     ValidationError,
     append_jsonl,
     atomic_text_write,
+    ensure_dir,
     json_dump,
     minutes_since,
     pending_result_path,
@@ -70,7 +71,43 @@ from research_mode_utils import (
 
 FINAL_STATUSES = {"complete", "failed", "cancelled"}
 REVIEW_WAIT_STATUSES = {"awaiting_review"}
-PHASES = {"search", "analyze", "synthesize", "verify", "finalize"}
+PHASES = {"preflight", "search", "analyze", "synthesize", "verify", "finalize"}
+PREFLIGHT_DECISIONS = {"go", "go_with_warnings", "needs_setup", "blocked", "skipped"}
+WORKER_PREFLIGHT_DECISIONS = PREFLIGHT_DECISIONS - {"skipped"}
+
+
+def _normalize_preflight_payload(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        value = {}
+    if not isinstance(value, dict):
+        raise ValidationError("preflight must be an object")
+    decision = str(value.get("decision") or "go").strip() or "go"
+    if decision not in WORKER_PREFLIGHT_DECISIONS:
+        raise ValidationError(f"Unsupported preflight.decision: {decision}")
+    return {
+        "decision": decision,
+        "warnings": normalize_string_list(value.get("warnings") or []),
+        "blockers": normalize_string_list(value.get("blockers") or []),
+        "notes": str(value.get("notes") or "").strip() or None,
+    }
+
+
+def _render_preflight_markdown(payload: dict[str, Any], preflight: dict[str, Any]) -> str:
+    lines = [
+        "# Research Preflight",
+        "",
+        f"- Decision: `{preflight['decision']}`",
+        f"- Summary: {payload['summary']}",
+    ]
+    warnings = preflight.get("warnings") or []
+    blockers = preflight.get("blockers") or []
+    if warnings:
+        lines.extend(["", "## Warnings", *[f"- {item}" for item in warnings]])
+    if blockers:
+        lines.extend(["", "## Blockers", *[f"- {item}" for item in blockers]])
+    if preflight.get("notes"):
+        lines.extend(["", "## Notes", str(preflight["notes"])])
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _run_v13_finalization_validation(
@@ -455,6 +492,17 @@ def begin_iteration(args: argparse.Namespace) -> int:
                 }
             )
             return 0
+        preflight = state.get("preflight")
+        if isinstance(preflight, dict) and not bool(preflight.get("done")):
+            target_phase = str(
+                preflight.get("target_phase") or state.get("phase") or "search"
+            )
+            if target_phase == "preflight":
+                target_phase = "search"
+            preflight["target_phase"] = target_phase
+            preflight["iteration_index"] = int(preflight.get("iteration_index") or 0) + 1
+            preflight["iteration_limit"] = int(preflight.get("iteration_limit") or 1)
+            state["phase"] = "preflight"
         iteration_index = int(state["progress"].get("iteration_count") or 0) + 1
         state["status"] = "running"
         state["updated_at"] = now
@@ -535,12 +583,144 @@ def load_result_payload(path: Path) -> dict[str, Any]:
             payload.get("vision_artifacts") or []
         ),
         "vision_summary": normalize_vision_summary(payload.get("vision_summary")),
+        "_preflight_explicit": "preflight" in payload,
+        "preflight": _normalize_preflight_payload(payload.get("preflight")),
         "notify_recommendation": notify,
         "should_complete": bool(payload.get("should_complete", False)),
         "final_report_markdown": payload.get("final_report_markdown"),
         "adequacy": adequacy,
         "finalization": normalize_finalization_trace(payload.get("finalization")),
     }
+
+
+def _finish_preflight_iteration_impl(
+    task: ResearchTask,
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    *,
+    emit: bool = True,
+) -> tuple[int, dict[str, Any]]:
+    manager = StateManager(task)
+    lease_token: str | None = None
+    now = ""
+    iteration_index = 0
+    with manager.editor() as state:
+        lock = state.get("lock") or {}
+        if state.get("status") != "running" or lock.get("status") != "held":
+            raise ValidationError("No active run to finish")
+        if lock.get("run_id") != args.run_id:
+            raise ValidationError(
+                f"Active run id mismatch: expected {lock.get('run_id')}, got {args.run_id}"
+            )
+        if state.get("phase") != "preflight":
+            raise ValidationError(
+                "preflight phase result can only finish an active preflight lease"
+            )
+        lease_token = lock.get("lease_token")
+        now = utc_now()
+        iteration_index = int(lock.get("iteration_index") or 0)
+        preflight = state.setdefault("preflight", {})
+        result_preflight = payload["preflight"]
+        decision = result_preflight["decision"]
+        target_phase = str(preflight.get("target_phase") or "search")
+        if target_phase == "preflight":
+            target_phase = "search"
+        artifact_rel = str(
+            preflight.get("artifact_markdown")
+            or "workspace/preflight/research-preflight.md"
+        )
+        artifact_path = task.task_dir / artifact_rel
+        ensure_dir(artifact_path.parent)
+        atomic_text_write(
+            artifact_path,
+            _render_preflight_markdown(payload, result_preflight),
+        )
+        preflight.update(
+            {
+                "done": True,
+                "decision": decision,
+                "iteration_index": int(preflight.get("iteration_index") or 1),
+                "iteration_limit": int(preflight.get("iteration_limit") or 1),
+                "artifact_markdown": artifact_rel,
+                "blockers": result_preflight.get("blockers") or [],
+                "warnings": result_preflight.get("warnings") or [],
+                "completed_at": now,
+                "target_phase": target_phase,
+            }
+        )
+        state["phase"] = target_phase
+        state["status"] = "paused" if decision in {"needs_setup", "blocked"} else "idle"
+        state["updated_at"] = now
+        state["working_memory"]["summary"] = payload["summary"]
+        state["lock"].update(
+            {
+                "status": "free",
+                "run_id": None,
+                "lease_token": NO_ACTIVE_LEASE,
+                "started_at": None,
+                "iteration_index": None,
+            }
+        )
+        state.setdefault("queue", {}).update(
+            {
+                "status": "free",
+                "active_task_id": None,
+                "active_run_id": None,
+                "last_released_at": now,
+            }
+        )
+        if state["status"] == "paused":
+            suspend_bound_job(state, reason=f"preflight:{decision}", at=now)
+        normalized_reason = set_history_reason(state, f"preflight:{decision}")
+        state["history"]["last_transition"] = f"preflight:{decision}"
+        state.setdefault("transactions", {})["finish"] = {
+            "status": "committed",
+            "run_id": args.run_id,
+            "iteration": iteration_index,
+            "committed_at": now,
+            "outcome": state["status"],
+            "normalized_reason": normalized_reason,
+        }
+        append_run_log(
+            task,
+            timestamp=now,
+            iteration=iteration_index,
+            run_id=args.run_id,
+            phase="preflight",
+            outcome=state["status"],
+            normalized_reason=normalized_reason,
+            meaningful_progress=False,
+            new_sources_count=0,
+            new_findings_count=0,
+            duplicate_sources_count=0,
+            duplicate_findings_count=0,
+            low_yield_streak=0,
+            topic_saturated=False,
+            short_summary=payload["summary"],
+        )
+        result = {
+            "status": state["status"],
+            "normalized_reason": normalized_reason,
+            "notify_user": False,
+            "update_text": None,
+            "summary": payload["summary"],
+            "preflight": dict(preflight),
+            "iteration_count": state["progress"]["iteration_count"],
+            "queue_release": None,
+        }
+
+    queue_release = release_global_queue(
+        task.task_dir.parent,
+        task_id=state["id"],
+        run_id=args.run_id,
+        lease_token=lease_token,
+        released_by="finish",
+    )
+    result["queue_release"] = queue_release
+    refresh_task_playbook(task)
+    if emit:
+        json_dump(result)
+    return 0, result
 
 
 def _finish_iteration_impl(
@@ -550,6 +730,10 @@ def _finish_iteration_impl(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
     )
     payload = load_result_payload(Path(args.result_file).expanduser().resolve())
+    if payload["phase"] == "preflight":
+        if payload.get("_preflight_explicit"):
+            return _finish_preflight_iteration_impl(task, args, payload, emit=emit)
+        raise ValidationError("preflight phase result requires explicit 'preflight' object")
     manager = StateManager(task)
     remove_job_id: str | None = None
     queue_release: dict[str, Any] | None = None
@@ -596,6 +780,12 @@ def _finish_iteration_impl(
             "iteration": iteration_index,
             "started_at": now,
         }
+
+        active_phase = str(state.get("phase") or "")
+        if active_phase == "preflight" and phase != "preflight":
+            raise ValidationError(
+                "preflight lease requires a preflight phase result with explicit preflight object"
+            )
 
         append_metrics = task.finish_iteration(args.run_id, payload)
 

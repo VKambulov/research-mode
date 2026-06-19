@@ -450,6 +450,7 @@ def render_worker_prompt_text(
            - working_memory.summary / next_angle / open_questions
            - corpus.mode / corpus.entries
            - input_layer.constraints / deliverable / user_instructions
+           - rules_profile when rules_profile.exists=true
            - execution_guidance
         4. Perform exactly one focused research iteration. You may use available tools such as search, fetch, browser, image analysis, MCP, file tools, exec, and messaging if needed.
            You are allowed to create files, write scripts, run analysis code, and build task-local tooling under paths.workspace_dir / paths.runtime_dir.
@@ -475,6 +476,7 @@ def render_worker_prompt_text(
            You may use Python's stdlib sqlite3 or the sqlite3 CLI. Save schema/query files when SQLite materially influences the analysis.
            If images/screenshots materially influence the analysis, save the raw image plus any derived note/output artifact. Use vision as a helper, not as the sole source of truth when a more reliable structured or textual path exists.
            If code materially influences your conclusions, save the script/output artifacts and report them in the result JSON.
+           If phase=preflight, do not perform broad research. Inspect the goal, constraints, corpus mode, available inputs, rules_profile, runtime/tool needs, and likely blockers. Fill result.preflight.decision with go, go_with_warnings, needs_setup, or blocked. Use warnings for non-blocking risks and blockers for issues that must pause the task.
            If phase=verify, evaluate research adequacy before finalization. Do not draft the final deliverable in this phase. Fill result.adequacy with goal alignment, coverage, gaps, evidence risks, contradictions, validation evidence, and the recommended next phase.
            If phase=finalize, produce the human-reviewable candidate only after adequacy has passed. Record the finalization trace in result.finalization and provide final_report_markdown or a reviewable candidate artifact.
            If phase=synthesize, prefer the accumulated task artifacts over noisy new searching; you may scaffold from:
@@ -488,7 +490,7 @@ def render_worker_prompt_text(
              "next_angle": "the next most useful angle to investigate",
              "meaningful_progress": true,
              "code_used": false,
-             "phase": "search|analyze|synthesize|verify|finalize",
+             "phase": "preflight|search|analyze|synthesize|verify|finalize",
              "open_questions": ["..."],
              "sources": [{{"url": "...", "title": "...", "note": "..."}}],
              "findings": [{{"kind": "fact|synthesis|risk|gap|plan", "text": "...", "source_urls": ["..."]}}],
@@ -500,6 +502,12 @@ def render_worker_prompt_text(
              "vision_used": false,
              "vision_artifacts": [{{"path": "workspace/outputs/screenshots/map.png", "kind": "screenshot|photo|chart|vision-note", "note": "why it matters"}}],
              "vision_summary": {{"purpose": "map triage", "images_reviewed": 2, "confidence": "medium"}},
+             "preflight": {{
+               "decision": "go|go_with_warnings|needs_setup|blocked",
+               "warnings": ["non-blocking setup or evidence risk"],
+               "blockers": ["blocking setup issue"],
+               "notes": "short optional setup note"
+             }},
              "adequacy": {{
                "status": "not_started|passed|needs_research|needs_analysis|needs_synthesis|needs_user_input|needs_intervention",
                "goal_alignment": "whether the current evidence answers the user's goal",
@@ -518,6 +526,7 @@ def render_worker_prompt_text(
              "final_report_markdown": null
            }}
         6. Finalize with: python3 {script} finish --root {root_arg} --id {task_id} --run-id <run_id_from_begin> --result-file <paths.result_file>
+           Never exit successfully after status=leased until either finish or fail has completed. If you have written paths.result_file, your next tool call must be finish; if finish cannot run, call fail with the run id instead of replying NO_REPLY.
         7. This cron worker is scheduled with internal-only delivery (`--no-deliver`). A normal assistant reply will NOT reach the human.
            - If finish/fail returns delivery_intent.status="pending", send delivery_intent.update_text via the available messaging surface to delivery_intent.notification_target.
            - Include delivery_intent.primary_file / attachments when the messaging surface supports safe file delivery.

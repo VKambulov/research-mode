@@ -42,6 +42,9 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
     errors = state.get("errors") or {}
     artifacts = state.get("artifacts") or {}
     history = state.get("history") or {}
+    preflight_raw = state.get("preflight")
+    preflight_configured = isinstance(preflight_raw, dict)
+    preflight = preflight_raw if preflight_configured else {}
     adequacy = state.get("adequacy") or {}
     recent_runs = list(reversed(read_tsv_rows(task.runs_path)[-3:]))
     analysis = state.get("analysis") or {}
@@ -98,6 +101,28 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             f"- Topic saturated: {'yes' if saturation.get('topic_saturated') else 'no'}",
             f"- Failures: {int(errors.get('failure_count') or 0)} (consecutive {int(errors.get('consecutive_failures') or 0)})",
             f"- Milestone cadence: every {int(delivery.get('milestone_every_iterations') or 0) or '-'} meaningful iterations",
+            "",
+            "## Preflight",
+            "",
+            f"- Configured: {'yes' if preflight_configured else 'no'}",
+            f"- Done: {'yes' if preflight.get('done') else 'no'}",
+            f"- Decision: `{preflight.get('decision') or '-'}`",
+            f"- Target phase: `{preflight.get('target_phase') or '-'}`",
+            f"- Iteration: {int(preflight.get('iteration_index') or 0)} / {int(preflight.get('iteration_limit') or 0) or '-'}",
+            f"- Artifact: `{preflight.get('artifact_markdown') or '-'}`",
+            f"- Completed at: {preflight.get('completed_at') or '-'}",
+        ]
+    )
+    preflight_warnings = preflight.get("warnings") or []
+    if preflight_warnings:
+        lines.extend(["", "### Preflight warnings", ""])
+        lines.extend(f"- {item}" for item in preflight_warnings[:10])
+    preflight_blockers = preflight.get("blockers") or []
+    if preflight_blockers:
+        lines.extend(["", "### Preflight blockers", ""])
+        lines.extend(f"- {item}" for item in preflight_blockers[:10])
+    lines.extend(
+        [
             "",
             "## Budget",
             "",

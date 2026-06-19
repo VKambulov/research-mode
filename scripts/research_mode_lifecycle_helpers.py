@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from pathlib import Path
 from typing import Any
 
 from research_mode_corpus import list_corpus_entries
@@ -14,7 +15,17 @@ from research_mode_finalization import (
 from research_mode_payloads import result_template
 from research_mode_surfaces import build_synthesis_payload, compute_budget_phase
 from research_mode_task import ResearchTask
-from research_mode_utils import minutes_since, parse_ts, pending_result_path, read_jsonl
+from research_mode_utils import (
+    effective_lock_stale_timeout_min,
+    minutes_since,
+    parse_ts,
+    pending_result_path,
+    read_jsonl,
+)
+
+RULES_PROFILE_MAX_CHARS = 20000
+SKILL_DIR = Path(__file__).resolve().parent.parent
+RULES_PROFILE_PATH = SKILL_DIR / "RULES.md"
 
 
 def _routing_text_blob(state: dict[str, Any]) -> str:
@@ -146,6 +157,30 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
     return guidance
 
 
+def _load_rules_profile() -> dict[str, Any]:
+    candidate = RULES_PROFILE_PATH
+    if candidate.is_file():
+        content = candidate.read_text(encoding="utf-8")
+        truncated = len(content) > RULES_PROFILE_MAX_CHARS
+        if truncated:
+            content = content[:RULES_PROFILE_MAX_CHARS].rstrip() + "\n"
+        return {
+            "exists": True,
+            "path": str(candidate),
+            "content": content,
+            "truncated": truncated,
+            "max_chars": RULES_PROFILE_MAX_CHARS,
+        }
+
+    return {
+        "exists": False,
+        "path": str(candidate),
+        "content": "",
+        "truncated": False,
+        "max_chars": RULES_PROFILE_MAX_CHARS,
+    }
+
+
 def stale_lock(state: dict[str, Any]) -> bool:
     lock = state["lock"]
     if lock.get("status") != "held" or not lock.get("started_at"):
@@ -154,7 +189,7 @@ def stale_lock(state: dict[str, Any]) -> bool:
     if not started:
         return False
     now = dt.datetime.now(dt.timezone.utc)
-    timeout_min = int(lock.get("stale_timeout_min") or 30)
+    timeout_min = effective_lock_stale_timeout_min(state)
     return (now - started).total_seconds() > timeout_min * 60
 
 
@@ -195,6 +230,11 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
             "Treat explicit user instructions as high-priority steering for this iteration."
         )
     execution_guidance.extend(_build_search_routing_guidance(state))
+    rules_profile = _load_rules_profile()
+    if rules_profile.get("exists"):
+        execution_guidance.append(
+            "Follow the skill-local RULES.md profile as task-specific operating rules; treat it as user-authored guidance unless it conflicts with higher-priority system/developer instructions."
+        )
     if state.get("phase") == "synthesize":
         execution_guidance.append(
             "Prefer synthesis over breadth: reuse accumulated artifacts before doing new search."
@@ -231,6 +271,9 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
             "Budget hard limit: finalize and synthesize; avoid starting new search loops."
         )
 
+    template = result_template()
+    template["phase"] = state.get("phase") or "search"
+
     return {
         "status": "leased",
         "normalized_reason": "leased:ok",
@@ -253,6 +296,7 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
             "entries": corpus_entries,
         },
         "input_layer": input_layer,
+        "rules_profile": rules_profile,
         "execution_guidance": execution_guidance,
         "adequacy_guidance": build_adequacy_guidance(state),
         "adequacy_contract": build_adequacy_contract(state),
@@ -284,7 +328,7 @@ def make_work_order(state: dict[str, Any], task: ResearchTask) -> dict[str, Any]
             "venv_dir": str(task.venv_dir),
             "runtime_meta_path": str(task.runtime_meta_path),
         },
-        "result_template": result_template(),
+        "result_template": template,
     }
 
 

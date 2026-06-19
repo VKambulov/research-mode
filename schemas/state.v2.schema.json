@@ -35,6 +35,24 @@
       "type": "array",
       "items": {"type": "object"}
     },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "done": {"type": "boolean"},
+        "decision": {
+          "type": ["string", "null"],
+          "enum": ["go", "go_with_warnings", "needs_setup", "blocked", "skipped", null]
+        },
+        "iteration_index": {"type": "integer"},
+        "iteration_limit": {"type": "integer"},
+        "artifact_markdown": {"type": ["string", "null"]},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "target_phase": {"type": ["string", "null"]},
+        "completed_at": {"type": ["string", "null"]}
+      }
+    },
     "adequacy": {"type": "object", "additionalProperties": true},
     "finalization": {"type": "object", "additionalProperties": true},
     "queue": {"type": "object", "additionalProperties": true}

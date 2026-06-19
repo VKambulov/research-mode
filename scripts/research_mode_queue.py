@@ -8,6 +8,7 @@ from typing import Any
 from research_mode_utils import (
     NO_ACTIVE_LEASE,
     atomic_json_write,
+    effective_lock_stale_timeout_min,
     ensure_dir,
     is_relative_to,
     minutes_since,
@@ -100,7 +101,7 @@ def _holder_matching_task_lock_state(root: Path, holder: dict[str, Any]) -> str:
     if not matches:
         return "missing"
     age = minutes_since(lock.get("started_at"))
-    timeout = int(lock.get("stale_timeout_min") or holder.get("stale_timeout_min") or 30)
+    timeout = effective_lock_stale_timeout_min(state)
     if age is not None and age <= timeout:
         return "active"
     return "stale"
@@ -322,9 +323,22 @@ def read_queue_status(root: Path) -> dict[str, Any]:
     holder = _read_json_object(paths["global_lock"])
     waiters = _prune_waiters(root, _read_waiters(paths["waiters"]))
     active_holder = holder if holder.get("status") == "held" else {}
+    active_holder_state = (
+        _holder_matching_task_lock_state(root, active_holder) if active_holder else None
+    )
+    if active_holder and active_holder_state == "missing":
+        age = minutes_since(active_holder.get("started_at"))
+        timeout = int(active_holder.get("stale_timeout_min") or 30)
+        active_holder_state = (
+            "active" if age is not None and age <= timeout else "stale"
+        )
+    status = "free"
+    if active_holder:
+        status = "stale" if active_holder_state == "stale" else "running"
     return {
-        "status": "running" if active_holder else "free",
+        "status": status,
         "active_holder": active_holder or None,
+        "active_holder_state": active_holder_state,
         "active_task_id": active_holder.get("task_id"),
         "active_run_id": active_holder.get("run_id"),
         "waiters": waiters,

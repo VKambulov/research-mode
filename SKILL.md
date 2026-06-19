@@ -282,6 +282,11 @@ next operator action for finalization:
 - `verify_review_state` — finalization passed, but the task is not in the expected review gate;
 - `continue_research` — no passing finalization evidence exists yet.
 
+`summary --format json` also exposes `operator_attention` for execution-health
+conditions that should wake an operator or watcher even when lifecycle status is
+still `running`, such as a stale active run with or without a pending result.
+Treat `operator_attention.status != "ok"` as actionable.
+
 ### Review-ready vs delivery-ready
 Do not collapse review state and delivery state:
 - `delivery.review_ready=true` means there is an artifact ready for review.

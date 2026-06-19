@@ -107,7 +107,7 @@ def test_finish_with_wrong_run_id(root: Path) -> None:
 def test_should_complete_false_with_report(root: Path) -> None:
     """Worker says not done but includes a report — should continue, not finalize."""
     json_out(
-        run("create", "--root", str(root), "--id", "no-complete-test", "--goal", "Continue despite report")
+        run("create", "--root", str(root), "--id", "no-complete-test", "--goal", "Continue despite report", "--skip-preflight")
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "no-complete-test"))
     result_file = Path(lease["paths"]["result_file"])

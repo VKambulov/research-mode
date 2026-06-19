@@ -415,6 +415,12 @@ def result_template() -> dict[str, Any]:
         "vision_used": False,
         "vision_artifacts": [],
         "vision_summary": None,
+        "preflight": {
+            "decision": "go",
+            "warnings": [],
+            "blockers": [],
+            "notes": None,
+        },
         "notify_recommendation": "auto",
         "should_complete": False,
         "final_report_markdown": None,
@@ -446,8 +452,9 @@ def build_initial_state(
     owner_thread_id = None if no_owner else getattr(args, "thread_id", None)
     owner_topic_id = None if no_owner else getattr(args, "topic_id", None)
     owner_disabled_reason = "owner_disabled:explicit" if no_owner else None
+    preflight_limit = 1 if depth == "S" else 2 if depth == "M" else 3
 
-    return {
+    state = {
         "version": state_version,
         "id": args.id,
         "title": args.title,
@@ -627,3 +634,26 @@ def build_initial_state(
         },
         "finalization": finalization_defaults(),
     }
+    if bool(getattr(args, "skip_preflight", False)):
+        state["preflight"] = {
+            "done": True,
+            "decision": "skipped",
+            "iteration_index": 0,
+            "iteration_limit": 0,
+            "artifact_markdown": None,
+            "blockers": [],
+            "warnings": ["Preflight skipped via --skip-preflight."],
+            "target_phase": args.phase,
+        }
+    else:
+        state["preflight"] = {
+            "done": False,
+            "decision": None,
+            "iteration_index": 0,
+            "iteration_limit": preflight_limit,
+            "artifact_markdown": "workspace/preflight/research-preflight.md",
+            "blockers": [],
+            "warnings": [],
+            "target_phase": args.phase,
+        }
+    return state

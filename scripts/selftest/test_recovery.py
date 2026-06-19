@@ -20,6 +20,7 @@ def _create_and_begin(root: Path, task_id: str) -> dict:
             task_id,
             "--stale-timeout-min",
             "1",
+            "--skip-preflight",
         )
     )
     return json_out(run("begin", "--root", str(root), "--id", task_id))

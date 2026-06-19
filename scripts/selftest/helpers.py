@@ -27,14 +27,22 @@ def run(
             env["RESEARCH_MODE_FAKE_OPENCLAW_STATE"] = str(
                 Path(args[root_index]) / ".fake-openclaw-state.json"
             )
-    return subprocess.run(
+    result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,
-        check=check,
+        check=False,
         env=env,
     )
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            cmd,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return result
 
 
 def json_out(result: subprocess.CompletedProcess[str]) -> dict:
@@ -133,6 +141,53 @@ def human_ready_adequacy(*, status: str = "passed") -> dict:
     }
 
 
+def finish_preflight_if_needed(root: Path, task_id: str, lease: dict) -> dict:
+    if lease.get("phase") != "preflight":
+        return lease
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Selftest preflight passed.",
+                "next_angle": "Continue selftest workflow.",
+                "meaningful_progress": False,
+                "phase": "preflight",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "preflight": {
+                    "decision": "go",
+                    "warnings": [],
+                    "blockers": [],
+                    "notes": "Selftest helper cleared the default preflight gate.",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result_file),
+        )
+    )
+    assert_eq(finished["status"], "idle", "selftest preflight should return to idle")
+    return json_out(run("begin", "--root", str(root), "--id", task_id))
+
+
 def route_to_finalize(
     root: Path,
     task_id: str,
@@ -142,6 +197,7 @@ def route_to_finalize(
     findings: list | None = None,
 ) -> dict:
     """Route a task through adequacy and return a fresh finalize lease."""
+    lease = finish_preflight_if_needed(root, task_id, lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(

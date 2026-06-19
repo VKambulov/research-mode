@@ -1,6 +1,7 @@
 """Global worker queue regressions."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 
@@ -17,6 +18,7 @@ def _create_task(root: Path, task_id: str, goal: str | None = None) -> None:
             task_id,
             "--goal",
             goal or f"Queue regression for {task_id}",
+            "--skip-preflight",
         )
     )
 
@@ -167,6 +169,12 @@ def test_queue_status_reports_active_holder_and_waiters(root: Path) -> None:
     assert_eq(blocked_b.get("status"), "skipped", "task B should wait")
 
     queue_status = json_out(run("queue-status", "--root", str(root)))
+    assert_eq(queue_status.get("status"), "running", "queue-status should show active holder")
+    assert_eq(
+        queue_status.get("active_holder_state"),
+        "active",
+        "queue-status should classify a fresh holder as active",
+    )
     assert_eq(
         queue_status.get("active_task_id"),
         "queue-status-a",
@@ -190,6 +198,42 @@ def test_queue_status_reports_active_holder_and_waiters(root: Path) -> None:
     ).stdout
     assert "Queue: waiting for global research worker" in summary_text
     _finish_iteration(root, "queue-status-a", lease_a)
+
+
+def test_queue_status_uses_effective_worker_timeout_for_stale_holder(
+    root: Path,
+) -> None:
+    root = root / "queue-status-effective-stale-case"
+    _create_task(root, "queue-status-effective")
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "queue-status-effective"))
+    state_path = root / "queue-status-effective" / "state.json"
+    state = _read_json(state_path)
+    ten_min_ago = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    state["job"]["schedule_template"] = {"timeout_seconds": 300}
+    state["lock"]["started_at"] = ten_min_ago
+    state["lock"]["stale_timeout_min"] = 30
+    _write_json(state_path, state)
+
+    holder = _read_json(_queue_lock_path(root))
+    holder["started_at"] = ten_min_ago
+    holder["stale_timeout_min"] = 30
+    _write_json(_queue_lock_path(root), holder)
+
+    queue_status = json_out(run("queue-status", "--root", str(root)))
+    assert_eq(
+        queue_status.get("status"),
+        "stale",
+        "queue-status should not call a worker-timeout-stale holder running",
+    )
+    assert_eq(
+        queue_status.get("active_holder_state"),
+        "stale",
+        "queue-status should use the matching task lock's effective timeout",
+    )
+    assert_eq(queue_status.get("active_run_id"), lease["run_id"], "stale holder should identify run")
 
 
 def test_stop_stale_running_task_releases_matching_global_lease(root: Path) -> None:

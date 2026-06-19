@@ -7,6 +7,82 @@ from pathlib import Path
 from .helpers import assert_eq, finish_to_awaiting_review, json_out, run
 
 
+def test_preflight_blocked_or_needs_setup_disables_scheduled_task(root: Path) -> None:
+    for decision in ("blocked", "needs_setup"):
+        task_id = f"preflight-{decision.replace('_', '-')}-gated"
+        json_out(
+            run(
+                "create",
+                "--root",
+                str(root),
+                "--id",
+                task_id,
+                "--goal",
+                f"Preflight {decision} should gate scheduler",
+            )
+        )
+        json_out(
+            run(
+                "schedule",
+                "--root",
+                str(root),
+                "--id",
+                task_id,
+                "--every",
+                "5m",
+            )
+        )
+        lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+        result_file = Path(lease["paths"]["result_file"])
+        result_file.write_text(
+            json.dumps(
+                {
+                    "summary": "Preflight needs setup before research can continue.",
+                    "phase": "preflight",
+                    "meaningful_progress": False,
+                    "sources": [],
+                    "findings": [],
+                    "notify_recommendation": "silent",
+                    "preflight": {
+                        "decision": decision,
+                        "blockers": ["Missing required local corpus."],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        finished = json_out(
+            run(
+                "finish",
+                "--root",
+                str(root),
+                "--id",
+                task_id,
+                "--run-id",
+                lease["run_id"],
+                "--result-file",
+                str(result_file),
+            )
+        )
+        assert_eq(finished["status"], "paused", f"{decision} preflight should pause task")
+
+        state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+        assert_eq(
+            state.get("job", {}).get("enabled"),
+            False,
+            f"{decision} preflight should disable cron scheduling",
+        )
+        assert_eq(
+            state.get("job", {}).get("suspended_reason"),
+            f"preflight:{decision}",
+            f"{decision} preflight should record suspension reason",
+        )
+
+
 def test_pause_disables_and_resume_enables_scheduled_task(root: Path) -> None:
     json_out(
         run(

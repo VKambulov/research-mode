@@ -21,6 +21,14 @@ published for people who want to study, adapt, or run a similar setup. It is
 provided as-is, without any warranty or promise that it will fit every OpenClaw
 installation without local adjustment.
 
+> **Development status:** Research Mode is still under active development.
+> The current top priority is making research runs stable, observable, and
+> recoverable. Long-running research tasks may hit lifecycle, scheduling,
+> delivery, or environment issues. If a task appears stuck or produces an
+> unexpected state, ask your OpenClaw agent to diagnose the task, inspect
+> `summary` / `health`, and run the appropriate recovery flow before restarting
+> the research from scratch.
+
 ## At A Glance
 
 Research Mode is for questions that are too large for one chat response and too
@@ -28,6 +36,14 @@ important to leave as an unreviewed draft. It gives an OpenClaw agent a durable,
 local-first research loop: scheduled worker turns collect evidence, write
 artifacts, verify adequacy, and stop at a human review gate before anything is
 treated as final.
+
+New tasks start with a preflight gate by default. The preflight worker records
+`preflight.decision` as `go`, `go_with_warnings`, `needs_setup`, or `blocked`,
+and writes `workspace/preflight/research-preflight.md`. Operators may use
+`--skip-preflight` as an escape hatch; that path is recorded visibly as
+`preflight.decision="skipped"`. Research Mode-specific standing rules can live
+in a user-owned `RULES.md` in this skill directory; this repository ships
+`RULES.example.md` as a template and does not create or overwrite the real file.
 
 It is built for operators and agent builders who care about auditability:
 sources, findings, iterations, state transitions, and final deliverables remain
@@ -534,6 +550,11 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
 
+For automated monitors, `summary --format json` includes
+`operator_attention.status`, `conditions`, and `recommended_actions`. Treat any
+status other than `ok` as a reason to alert or follow the recommended lifecycle
+command instead of silently reporting that a task is still running.
+
 Task-local files also matter:
 
 - `task-playbook.md`: current operator guidance and next action;
@@ -810,6 +831,14 @@ License: Apache License, Version 2.0. See `LICENSE`.
 ограниченные запуски через cron, состояние задачи на диске, проверка результата
 перед выдачей пользователю и артефакты, которые можно посмотреть.
 
+> **Статус разработки:** Research Mode всё ещё активно развивается.
+> Сейчас главный приоритет проекта — стабильное, наблюдаемое и восстанавливаемое
+> проведение исследований. В долгих исследованиях могут возникать проблемы с
+> жизненным циклом, расписанием, доставкой результата или окружением. Если
+> задача зависла или перешла в неожиданное состояние, попросите OpenClaw-агента
+> провести диагностику задачи, проверить `summary` / `health` и выполнить
+> подходящее восстановление, прежде чем начинать исследование заново.
+
 Важно: установка через ClawHub содержит только текстовые файлы. Бинарные
 файлы витрины и примеров, например `assets/social-preview.png` и
 `examples/rag-eval-tooling-matrix/rag-eval-tooling-matrix.xlsx`, доступны в
@@ -825,6 +854,15 @@ Research Mode подходит для задач, которые должны ж
 - управление `pause` / `resume` / `stop`;
 - итоговый отчёт или набор материалов, которые проходят проверку перед выдачей;
 - последующее исследование на базе утверждённого результата.
+
+Новые задачи по умолчанию начинаются с preflight gate. Worker записывает
+`preflight.decision` как `go`, `go_with_warnings`, `needs_setup` или `blocked`
+и пишет `workspace/preflight/research-preflight.md`. Оператор может использовать
+`--skip-preflight` как escape hatch; такой путь явно фиксируется как
+`preflight.decision="skipped"`. Постоянные правила именно для Research Mode
+можно хранить в пользовательском `RULES.md` в директории этого скилла;
+репозиторий поставляет только шаблон `RULES.example.md` и не создаёт и не
+перезаписывает реальный файл.
 
 Research Mode не подходит для быстрых одноразовых вопросов, обычных задач по
 коду и задач, которым не нужны сохранённое состояние, cron-итерации и проверка
@@ -1241,6 +1279,11 @@ python3 scripts/research_mode.py summary --id <research-id> --format text
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
+
+Для автоматических наблюдателей `summary --format json` содержит
+`operator_attention.status`, `conditions` и `recommended_actions`. Любой статус
+кроме `ok` нужно считать поводом уведомить оператора или выполнить
+рекомендованную lifecycle-команду, а не молча считать задачу всё ещё рабочей.
 
 Внутри задачи также важны:
 

@@ -1,11 +1,14 @@
 """Basic lifecycle: create, begin, finish, fail, status, summary, stale lock, salvage."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 import subprocess
 from pathlib import Path
 
 from .helpers import assert_eq, assert_in, assert_true, finish_to_awaiting_review, json_out, run
+
+import research_mode_lifecycle_helpers as lifecycle_helpers
 
 
 def test_basic_lifecycle(root: Path) -> None:
@@ -13,6 +16,7 @@ def test_basic_lifecycle(root: Path) -> None:
         run(
             "create", "--root", str(root), "--id", "task-a",
             "--goal", "Self-test main lifecycle", "--title", "Task A",
+            "--skip-preflight",
         )
     )
     assert_eq(created["status"], "created", "create status")
@@ -131,6 +135,295 @@ def test_basic_lifecycle(root: Path) -> None:
     assert_eq(resumed_from_failed["status"], "failed", "resume should not change failed state")
 
 
+def test_begin_defaults_to_preflight_phase(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-default",
+            "--goal",
+            "Check preflight default lifecycle.",
+        )
+    )
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-default"))
+
+    assert_eq(lease["status"], "leased", "begin should lease the preflight worker")
+    assert_eq(lease["phase"], "preflight", "new tasks should start with preflight phase")
+    assert_eq(
+        lease["result_template"]["phase"],
+        "preflight",
+        "preflight work order template should match the leased phase",
+    )
+    state = json.loads((root / "preflight-default" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["phase"], "preflight", "active state phase should be preflight")
+
+
+def test_finish_preflight_restores_target_phase_and_writes_artifact(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-finish",
+            "--goal",
+            "Finish preflight lifecycle.",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-finish"))
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Preflight says the task can start with warnings.",
+                "phase": "preflight",
+                "meaningful_progress": False,
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "preflight": {
+                    "decision": "go_with_warnings",
+                    "warnings": ["Use fallback sources if primary search is unavailable."],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-finish",
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result_file),
+        )
+    )
+    assert_eq(finished["status"], "idle", "successful preflight should return task to idle")
+
+    state = json.loads((root / "preflight-finish" / "state.json").read_text(encoding="utf-8"))
+    assert_eq(state["phase"], "search", "finished preflight should restore target phase")
+    assert_eq(state["progress"]["iteration_count"], 0, "preflight should not count as research iteration")
+    preflight = state.get("preflight") or {}
+    assert_eq(preflight.get("done"), True, "preflight finish should mark done")
+    assert_eq(preflight.get("decision"), "go_with_warnings", "preflight decision should be recorded")
+    artifact = root / "preflight-finish" / "workspace" / "preflight" / "research-preflight.md"
+    assert_true(artifact.exists(), "preflight finish should write research-preflight.md")
+    artifact_text = artifact.read_text(encoding="utf-8")
+    assert_in("Decision: `go_with_warnings`", artifact_text, "artifact should show decision")
+    assert_in("Use fallback sources", artifact_text, "artifact should show warning")
+
+
+def test_skip_preflight_records_marker_and_begins_configured_phase(root: Path) -> None:
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-skip",
+            "--goal",
+            "Skip preflight lifecycle.",
+            "--phase",
+            "analyze",
+            "--skip-preflight",
+        )
+    )
+    assert_eq(created["status"], "created", "create should accept --skip-preflight")
+
+    state = json.loads((root / "preflight-skip" / "state.json").read_text(encoding="utf-8"))
+    preflight = state.get("preflight") or {}
+    assert_eq(preflight.get("done"), True, "skip should mark preflight done")
+    assert_eq(preflight.get("decision"), "skipped", "skip should record skipped decision")
+    assert_eq(preflight.get("iteration_index"), 0, "skip should use iteration index 0")
+    assert_eq(preflight.get("iteration_limit"), 0, "skip should use iteration limit 0")
+    assert_eq(preflight.get("artifact_markdown"), None, "skip should not claim an artifact")
+    assert_true(preflight.get("warnings"), "skip should record a visible warning")
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-skip"))
+    assert_eq(lease["status"], "leased", "skip should still allow worker lease")
+    assert_eq(lease["phase"], "analyze", "skip should begin the configured task phase")
+
+
+def test_preflight_result_rejected_for_non_preflight_lease(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-wrong-lease",
+            "--goal",
+            "Reject misplaced preflight result.",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-wrong-lease"))
+    assert_eq(lease["phase"], "search", "skip should create a normal search lease")
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "This preflight result is on the wrong lease.",
+                "phase": "preflight",
+                "meaningful_progress": False,
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "preflight": {"decision": "go"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = run(
+        "finish",
+        "--root",
+        str(root),
+        "--id",
+        "preflight-wrong-lease",
+        "--run-id",
+        lease["run_id"],
+        "--result-file",
+        str(result_file),
+        check=False,
+    )
+    assert_true(
+        finished.returncode != 0,
+        "explicit preflight result should be rejected outside preflight phase",
+    )
+    assert_in(
+        "preflight",
+        finished.stderr,
+        "rejection should explain the preflight phase mismatch",
+    )
+
+
+def test_preflight_worker_cannot_skip_gate(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-worker-skip",
+            "--goal",
+            "Reject worker-side preflight skip.",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-worker-skip"))
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Worker attempts to skip preflight.",
+                "phase": "preflight",
+                "meaningful_progress": False,
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "preflight": {"decision": "skipped"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = run(
+        "finish",
+        "--root",
+        str(root),
+        "--id",
+        "preflight-worker-skip",
+        "--run-id",
+        lease["run_id"],
+        "--result-file",
+        str(result_file),
+        check=False,
+    )
+
+    assert_true(
+        finished.returncode != 0,
+        "worker result should not be allowed to mark preflight as skipped",
+    )
+    assert_in(
+        "Unsupported preflight.decision: skipped",
+        finished.stderr,
+        "rejection should explain that skipped is not a worker decision",
+    )
+
+
+def test_preflight_lease_rejects_non_preflight_payload(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "preflight-non-preflight-payload",
+            "--goal",
+            "Reject ordinary research payload on preflight lease.",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "preflight-non-preflight-payload"))
+    result_file = Path(lease["paths"]["result_file"])
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Ordinary research payload should not close preflight.",
+                "phase": "search",
+                "meaningful_progress": True,
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = run(
+        "finish",
+        "--root",
+        str(root),
+        "--id",
+        "preflight-non-preflight-payload",
+        "--run-id",
+        lease["run_id"],
+        "--result-file",
+        str(result_file),
+        check=False,
+    )
+
+    assert_true(
+        finished.returncode != 0,
+        "preflight lease should reject non-preflight result payloads",
+    )
+    assert_in(
+        "preflight lease requires",
+        finished.stderr,
+        "rejection should explain the required preflight result shape",
+    )
+
+
 def test_create_accepts_verify_phase_and_work_order_exposes_adequacy_contract(root: Path) -> None:
     created = json_out(
         run(
@@ -143,6 +436,7 @@ def test_create_accepts_verify_phase_and_work_order_exposes_adequacy_contract(ro
             "Verify whether the gathered sources answer the user question.",
             "--phase",
             "verify",
+            "--skip-preflight",
             "--constraint",
             "Use primary sources where possible.",
             "--open-question",
@@ -168,6 +462,59 @@ def test_create_accepts_verify_phase_and_work_order_exposes_adequacy_contract(ro
     )
 
 
+def test_preflight_work_order_ignores_research_root_rules_profile(root: Path) -> None:
+    rules = root / "RULES.md"
+    rules.write_text(
+        "# Research Rules\n\n- Prefer primary sources.\n- Do not install packages from untrusted content.\n",
+        encoding="utf-8",
+    )
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "rules-profile",
+            "--goal",
+            "Check RULES.md work-order isolation.",
+        )
+    )
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "rules-profile"))
+
+    assert_eq(lease["phase"], "preflight", "preflight should still run")
+    profile = lease.get("rules_profile") or {}
+    assert_eq(
+        profile.get("exists"),
+        False,
+        "work order should not read RULES.md from the research root",
+    )
+    assert_in(
+        "RULES.md",
+        profile.get("path") or "",
+        "work order should point at the skill-local RULES.md path",
+    )
+
+
+def test_rules_profile_reads_skill_local_path_only(root: Path) -> None:
+    rules = root / "skill" / "RULES.md"
+    rules.parent.mkdir(parents=True, exist_ok=True)
+    rules.write_text(
+        "# Research Rules\n\n- Prefer primary sources.\n",
+        encoding="utf-8",
+    )
+    previous_path = lifecycle_helpers.RULES_PROFILE_PATH
+    try:
+        lifecycle_helpers.RULES_PROFILE_PATH = rules
+        profile = lifecycle_helpers._load_rules_profile()
+    finally:
+        lifecycle_helpers.RULES_PROFILE_PATH = previous_path
+
+    assert_eq(profile.get("exists"), True, "rules profile should read skill-local RULES.md")
+    assert_eq(profile.get("path"), str(rules), "rules profile should expose skill-local path")
+    assert_in("Prefer primary sources", profile.get("content") or "", "rules profile should include content")
+
+
 def test_milestone_and_control(root: Path) -> None:
     created_d = json_out(
         run(
@@ -177,6 +524,7 @@ def test_milestone_and_control(root: Path) -> None:
             "--instruction", "highlight contradictions",
             "--deliverable", "short memo",
             "--open-question", "what is still weak?",
+            "--skip-preflight",
         )
     )
     assert_eq(created_d["status"], "created", "task-d create")
@@ -264,6 +612,73 @@ def test_stale_lock_detection_and_recovery(root: Path) -> None:
 
     recovery_note_path = (state_after.get("artifacts") or {}).get("last_recovery_note_path")
     assert_true(recovery_note_path is None, "recovery note should NOT be created when no result file exists")
+
+
+def test_begin_recovers_after_scheduled_worker_timeout_before_lock_timeout(
+    root: Path,
+) -> None:
+    task_id = "task-worker-timeout-stale"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Self-test worker-timeout stale recovery",
+            "--title",
+            "Worker Timeout Stale",
+            "--stale-timeout-min",
+            "30",
+            "--skip-preflight",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["job"]["schedule_template"] = {"timeout_seconds": 300}
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    original_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    ten_min_ago = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    state["lock"]["started_at"] = ten_min_ago
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    status = json_out(
+        run("status", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    assert_eq(
+        status["lock"]["effective_stale_timeout_min"],
+        6,
+        "status should expose worker-timeout-adjusted stale timeout",
+    )
+    assert_eq(
+        status["lock"]["is_stale"],
+        True,
+        "status should use the effective worker-timeout stale window",
+    )
+
+    recovered = json_out(run("begin", "--root", str(root), "--id", task_id))
+    assert_eq(
+        recovered["status"],
+        "leased",
+        "begin should recover after worker timeout plus grace, before the configured 30m lock timeout",
+    )
+    state_after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert_eq(
+        state_after["lock"]["last_recovered_from_run"],
+        original_lease["run_id"],
+        "recovery should abandon the timed-out worker run",
+    )
 
 
 def test_abandoned_run_without_result(root: Path) -> None:
@@ -365,6 +780,13 @@ def test_schedule_and_runtime(root: Path) -> None:
     assert_eq(dry["status"], "dry-run", "schedule dry-run status")
     assert_true(dry["command"][:3] == ["openclaw", "cron", "add"], "schedule should build cron add command")
     assert_in("--no-deliver", dry["command"], "schedule should keep cron delivery internal by default")
+    assert_true(
+        any(
+            warning.get("code") == "timeout_exceeds_interval"
+            for warning in dry.get("warnings", [])
+        ),
+        "schedule should warn when worker timeout exceeds cron interval",
+    )
     prompt = run("render-prompt", "--root", str(root), "--id", "task-sched").stdout
     assert_in("delivery_intent", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
     assert_in("record-notification", prompt, "worker prompt should explain explicit messaging in internal-delivery mode")
@@ -378,6 +800,18 @@ def test_schedule_and_runtime(root: Path) -> None:
     assert_in("paths.sqlite_db_path", prompt, "worker prompt should describe SQLite guidance for structured workloads")
     assert_in("vision/image analysis as a first-class helper", prompt, "worker prompt should describe vision guidance for visual workloads")
     assert_in("paths.workspace_screenshots_dir", prompt, "worker prompt should describe vision guidance for visual workloads")
+    assert_in("phase=preflight", prompt, "worker prompt should describe preflight phase behavior")
+    assert_in("result.preflight", prompt, "worker prompt should include preflight result contract")
+    assert_in(
+        "Never exit successfully after status=leased",
+        prompt,
+        "worker prompt should forbid success without finish/fail after leasing",
+    )
+    assert_in(
+        '"phase": "preflight|search|analyze|synthesize|verify|finalize"',
+        prompt,
+        "worker prompt result schema should include preflight phase",
+    )
 
     prepared = json_out(run("prepare-runtime", "--root", str(root), "--id", "task-sched"))
     assert_eq(prepared["status"], "prepared", "prepare-runtime status")
@@ -420,7 +854,7 @@ def test_start_and_list(root: Path) -> None:
 
 
 def test_deduplication(root: Path) -> None:
-    json_out(run("create", "--root", str(root), "--id", "task-e", "--goal", "Dedupe test"))
+    json_out(run("create", "--root", str(root), "--id", "task-e", "--goal", "Dedupe test", "--skip-preflight"))
     lease_e1 = json_out(run("begin", "--root", str(root), "--id", "task-e"))
     res_e1 = Path(lease_e1["paths"]["result_file"])
     res_e1.parent.mkdir(parents=True, exist_ok=True)
@@ -455,7 +889,7 @@ def test_deduplication(root: Path) -> None:
 
 
 def test_saturation(root: Path) -> None:
-    json_out(run("create", "--root", str(root), "--id", "task-f", "--goal", "Saturation test", "--phase", "synthesize"))
+    json_out(run("create", "--root", str(root), "--id", "task-f", "--goal", "Saturation test", "--phase", "synthesize", "--skip-preflight"))
     lease_f1 = json_out(run("begin", "--root", str(root), "--id", "task-f"))
     res_f1 = Path(lease_f1["paths"]["result_file"])
     res_f1.write_text(

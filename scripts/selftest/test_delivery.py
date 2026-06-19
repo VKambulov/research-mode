@@ -10,6 +10,7 @@ from .helpers import (
     assert_in,
     assert_true,
     finish_to_awaiting_review,
+    finish_preflight_if_needed,
     human_ready_adequacy,
     json_out,
     run,
@@ -39,6 +40,7 @@ _HUMAN_READY_FINALIZATION = {
 
 
 def _finish_with_payload(root: Path, task_id: str, lease: dict, payload: dict) -> dict:
+    lease = finish_preflight_if_needed(root, task_id, lease)
     result_file = Path(lease["paths"]["result_file"])
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(

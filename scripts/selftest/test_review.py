@@ -143,6 +143,7 @@ def test_completion_attempt_routes_to_verify_before_finalization(root: Path) -> 
             "Find the best option and explain why.",
             "--phase",
             "synthesize",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-precheck"))
@@ -211,6 +212,7 @@ def test_verify_result_with_research_gap_routes_back_to_search(root: Path) -> No
             "Compare long-term reliability.",
             "--phase",
             "verify",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-needs-research"))
@@ -294,6 +296,7 @@ def test_adequacy_routing_overrides_conflicting_worker_next_phase(root: Path) ->
             "Compare long-term reliability.",
             "--phase",
             "verify",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-conflicting-next"))
@@ -382,6 +385,7 @@ def test_verify_result_with_passed_adequacy_routes_to_finalize(root: Path) -> No
             "Check if research can be finalized.",
             "--phase",
             "verify",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", "adequacy-passed"))
@@ -668,6 +672,7 @@ def test_needs_intervention_after_max_attempts(root: Path) -> None:
             "max-attempts-test",
             "--goal",
             "Max attempts test",
+            "--skip-preflight",
         )
     )
     task_dir = root / "max-attempts-test"

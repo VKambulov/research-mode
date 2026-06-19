@@ -198,6 +198,11 @@ def test_result_template_shape(root: Path) -> None:
         "not_started",
         "result template should expose adequacy review defaults",
     )
+    assert_eq(
+        tmpl["preflight"]["decision"],
+        "go",
+        "result template should expose preflight decision defaults",
+    )
     assert_true(
         isinstance(tmpl["adequacy"]["coverage_gaps"], list),
         "result template adequacy coverage_gaps should be a list",
@@ -211,6 +216,7 @@ def test_result_template_independent_copies(root: Path) -> None:
     t1["sources"].append({"url": "test"})
     t1["finalization"]["validation_evidence"].append({"kind": "manual_review"})
     t1["adequacy"]["coverage_gaps"].append({"gap": "missing forum evidence"})
+    t1["preflight"]["warnings"].append("network fallback needed")
     assert_eq(len(t2["sources"]), 0, "templates should be independent")
     assert_eq(
         len(t2["finalization"]["validation_evidence"]),
@@ -221,6 +227,11 @@ def test_result_template_independent_copies(root: Path) -> None:
         len(t2["adequacy"]["coverage_gaps"]),
         0,
         "adequacy template lists should be independent",
+    )
+    assert_eq(
+        len(t2["preflight"]["warnings"]),
+        0,
+        "preflight template lists should be independent",
     )
 
 

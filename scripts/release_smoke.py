@@ -96,6 +96,37 @@ def _write_result_file(lease: dict[str, Any]) -> Path:
     return result_path
 
 
+def _write_preflight_result_file(lease: dict[str, Any]) -> Path:
+    result_path = Path(str(lease["paths"]["result_file"]))
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(
+            {
+                "summary": "Release smoke preflight passed.",
+                "next_angle": "Run the release smoke lifecycle.",
+                "meaningful_progress": False,
+                "phase": "preflight",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "silent",
+                "should_complete": False,
+                "preflight": {
+                    "decision": "go",
+                    "warnings": [],
+                    "blockers": [],
+                    "notes": "Synthetic release smoke task is ready to continue.",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
 def _write_adequacy_result_file(lease: dict[str, Any]) -> Path:
     result_path = Path(str(lease["paths"]["result_file"]))
     result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,6 +248,24 @@ def run_smoke(root: Path) -> dict[str, Any]:
         "--depth",
         "S",
     )
+    preflight_lease = _run_research_mode("begin", "--root", root_arg, "--id", task_id)
+    if preflight_lease.get("phase") != "preflight":
+        raise RuntimeError(f"expected preflight lease, got: {preflight_lease!r}")
+    preflight_result = _write_preflight_result_file(preflight_lease)
+    preflight_finished = _run_research_mode(
+        "finish",
+        "--root",
+        root_arg,
+        "--id",
+        task_id,
+        "--run-id",
+        str(preflight_lease["run_id"]),
+        "--result-file",
+        str(preflight_result),
+    )
+    if preflight_finished.get("status") != "idle":
+        raise RuntimeError(f"expected idle after preflight, got: {preflight_finished!r}")
+
     lease = _run_research_mode("begin", "--root", root_arg, "--id", task_id)
     result_file = _write_result_file(lease)
     finished = _run_research_mode(

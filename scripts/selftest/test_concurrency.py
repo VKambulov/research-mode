@@ -63,6 +63,60 @@ def test_concurrent_begin_allows_single_active_lease(root: Path) -> None:
     )
 
 
+def test_global_queue_wait_does_not_start_preflight(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "queue-holder",
+            "--goal",
+            "Hold global queue",
+            "--skip-preflight",
+        )
+    )
+    holder_lease = json_out(run("begin", "--root", str(root), "--id", "queue-holder"))
+    assert_eq(holder_lease["status"], "leased", "holder should acquire global queue")
+
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "queue-waiter",
+            "--goal",
+            "Wait for global queue before preflight",
+        )
+    )
+    queued = json_out(run("begin", "--root", str(root), "--id", "queue-waiter"))
+    assert_eq(queued["status"], "skipped", "waiter should not lease while queue is held")
+    assert_eq(
+        queued["reason"],
+        "global-research-lock-active",
+        "waiter should report global queue contention",
+    )
+
+    waiter_state = json.loads((root / "queue-waiter" / "state.json").read_text(encoding="utf-8"))
+    preflight = waiter_state.get("preflight") or {}
+    assert_eq(
+        waiter_state.get("phase"),
+        "search",
+        "queued task should keep target phase until a lease is acquired",
+    )
+    assert_eq(
+        preflight.get("iteration_index"),
+        0,
+        "queued task should not count a preflight attempt before lease",
+    )
+    assert_eq(
+        waiter_state.get("status"),
+        "idle",
+        "queued task should not enter running state",
+    )
+
+
 def test_concurrent_finish_commits_once(root: Path) -> None:
     task_id = "concurrent-finish"
     json_out(
@@ -74,6 +128,7 @@ def test_concurrent_finish_commits_once(root: Path) -> None:
             task_id,
             "--goal",
             "Only one finisher may commit an active run",
+            "--skip-preflight",
         )
     )
     lease = json_out(run("begin", "--root", str(root), "--id", task_id))

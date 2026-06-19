@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import re
 import subprocess  # nosec B404
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,41 @@ from research_mode_utils import (
     validate_research_id,
 )
 from research_mode_reporting import refresh_task_playbook
+
+
+def _parse_simple_every_seconds(value: str) -> int | None:
+    raw = str(value or "").strip().lower()
+    match = re.fullmatch(r"(\d+)\s*([smhd])", raw)
+    if not match:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2)
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return amount * multipliers[unit]
+
+
+def _schedule_warnings(args: argparse.Namespace) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    interval_seconds = _parse_simple_every_seconds(str(args.every))
+    timeout_seconds = int(args.timeout_seconds)
+    if interval_seconds is not None and timeout_seconds > interval_seconds:
+        warnings.append(
+            {
+                "code": "timeout_exceeds_interval",
+                "message": (
+                    "The worker timeout is longer than the cron interval; "
+                    "overlapping ticks will be skipped by the global queue."
+                ),
+                "every": str(args.every),
+                "interval_seconds": interval_seconds,
+                "timeout_seconds": timeout_seconds,
+                "recommended_action": (
+                    "Use a cron interval at least as long as the worker timeout, "
+                    "or accept skipped ticks."
+                ),
+            }
+        )
+    return warnings
 
 
 def create_task_from_args(
@@ -107,7 +143,12 @@ def build_schedule_preview(
         cmd.extend(["--model", args.model])
     if args.light_context:
         cmd.append("--light-context")
-    return {"status": "dry-run", "command": cmd, "prompt": prompt}
+    return {
+        "status": "dry-run",
+        "command": cmd,
+        "prompt": prompt,
+        "warnings": _schedule_warnings(args),
+    }
 
 
 def schedule_task(task: ResearchTask, args: argparse.Namespace, *, script_path: Path) -> dict[str, Any]:
@@ -163,4 +204,5 @@ def schedule_task(task: ResearchTask, args: argparse.Namespace, *, script_path: 
         "task_id": state["id"],
         "every": args.every,
         "thinking": args.thinking,
+        "warnings": preview.get("warnings") or [],
     }

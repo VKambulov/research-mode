@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import fcntl
 import json
+import math
 import os
 import re
 import sys
@@ -50,6 +51,45 @@ def minutes_since(value: str | None, now: dt.datetime | None = None) -> float | 
     if now is None:
         now = dt.datetime.now(dt.timezone.utc)
     return (now - parsed).total_seconds() / 60.0
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def scheduled_worker_timeout_seconds(state: dict[str, Any]) -> int | None:
+    job = state.get("job") or {}
+    schedule_template = job.get("schedule_template") or {}
+    for candidate in (
+        schedule_template.get("timeout_seconds"),
+        schedule_template.get("timeoutSeconds"),
+        job.get("timeout_seconds"),
+        job.get("timeoutSeconds"),
+    ):
+        parsed = _positive_int(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def effective_lock_stale_timeout_min(
+    state: dict[str, Any],
+    *,
+    worker_timeout_grace_min: int = 1,
+) -> int:
+    lock = state.get("lock") or {}
+    configured_timeout = _positive_int(lock.get("stale_timeout_min")) or 30
+    worker_timeout_seconds = scheduled_worker_timeout_seconds(state)
+    if worker_timeout_seconds is None:
+        return configured_timeout
+    worker_timeout_min = math.ceil(worker_timeout_seconds / 60) + max(
+        int(worker_timeout_grace_min), 0
+    )
+    return max(1, min(configured_timeout, worker_timeout_min))
 
 
 def ensure_dir(path: Path) -> None:

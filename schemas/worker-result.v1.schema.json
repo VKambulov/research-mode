@@ -19,6 +19,19 @@
     "analysis_artifacts": {"type": "array"},
     "database_artifacts": {"type": "array"},
     "vision_artifacts": {"type": "array"},
+    "preflight": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["go", "go_with_warnings", "needs_setup", "blocked"]
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": ["string", "null"]}
+      }
+    },
     "adequacy": {"type": "object", "additionalProperties": true},
     "finalization": {"type": "object", "additionalProperties": true}
   }

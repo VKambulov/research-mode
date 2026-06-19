@@ -25,6 +25,15 @@ operator, or task-specific context.
 
 ### Now
 
+- Make research stability the primary release gate. Long-running recurring tasks
+  should complete without routine manual state repair, silent lifecycle loops, or
+  unclear operator states. Observed failure classes should have detection,
+  operator guidance, recovery paths, regression tests, and recurring-task soak
+  coverage.
+- Improve lifecycle phase progression so tasks do not keep searching after they
+  have repeatedly signaled that synthesis or finalization is the right next
+  step. Surface stalled transitions in `summary`, `status`, and `health`, and
+  add bounded auto-advance where it is safe.
 - Make task-local package installation more governed without making ordinary
   research tasks painful: audit trails, optional strict policy, and reproducible
   package snapshots where useful.
@@ -81,6 +90,15 @@ Roadmap ниже описывает публичное направление Gi
 
 ### Сейчас
 
+- Сделать стабильность исследований главным release gate. Длинные recurring-задачи
+  должны доходить до результата без регулярной ручной правки state, тихих
+  lifecycle-петель и непонятных operator states. Для наблюдаемых классов сбоев
+  нужны detection, operator guidance, recovery paths, regression tests и
+  recurring-task soak coverage.
+- Улучшить progression между фазами, чтобы задачи не продолжали поиск после
+  повторяющихся сигналов, что следующий правильный шаг — synthesis или
+  finalization. Stalled transitions должны быть видны в `summary`, `status` и
+  `health`; для безопасных случаев нужен bounded auto-advance.
 - Сделать установку task-local packages управляемее без лишней бюрократии для
   обычных исследований: audit trail, optional strict policy и воспроизводимые
   package snapshots там, где это полезно.

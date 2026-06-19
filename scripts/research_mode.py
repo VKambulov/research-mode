@@ -38,6 +38,7 @@ from research_mode_lifecycle_commands import (
 from research_mode_query_commands import (
     draft_report_command,
     list_tasks,
+    preflight_command,
     queue_status_command,
     status_command,
     summary_command,
@@ -168,6 +169,11 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--max-iterations", type=int)
     create.add_argument("--max-runtime-min", type=int)
     create.add_argument("--max-sources", type=int)
+    create.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the default preflight phase (not recommended; records a visible warning)",
+    )
     create.set_defaults(func=create_research)
 
     start = subparsers.add_parser(
@@ -220,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--max-iterations", type=int)
     start.add_argument("--max-runtime-min", type=int)
     start.add_argument("--max-sources", type=int)
+    start.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the default preflight phase (not recommended; records a visible warning)",
+    )
     start.add_argument("--every", default="5m")
     start.add_argument("--timeout-seconds", type=int, default=900)
     start.add_argument("--thinking", default="high")
@@ -497,6 +508,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="How many recent sources to include",
     )
     summary.set_defaults(func=summary_command)
+
+    preflight = subparsers.add_parser(
+        "preflight",
+        help="Inspect the task preflight gate",
+        description="Show the task preflight decision, warnings, blockers, target phase, and artifact path.",
+        parents=[root_parent],
+    )
+    preflight.add_argument("--id", help="Research id")
+    preflight.add_argument("--path", help="Task directory or state.json path")
+    preflight.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+    preflight.set_defaults(func=preflight_command)
 
     draft = subparsers.add_parser(
         "draft-report",

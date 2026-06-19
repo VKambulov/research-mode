@@ -11,7 +11,7 @@ from .helpers import assert_eq, assert_in, assert_true, json_out, run
 def test_budget_source_hard_limit(root: Path) -> None:
     budget_root = root / "budget-root"
     budget_root.mkdir(parents=True, exist_ok=True)
-    json_out(run("create", "--root", str(budget_root), "--id", "budget-src", "--goal", "Max sources budget test", "--max-sources", "3", "--depth", "S"))
+    json_out(run("create", "--root", str(budget_root), "--id", "budget-src", "--goal", "Max sources budget test", "--max-sources", "3", "--depth", "S", "--skip-preflight"))
     lease1 = json_out(run("begin", "--root", str(budget_root), "--id", "budget-src"))
     res1 = Path(lease1["paths"]["result_file"])
     res1.write_text(
@@ -72,7 +72,7 @@ def test_budget_no_constraint(root: Path) -> None:
 def test_budget_soft_limit(root: Path) -> None:
     budget_root = root / "budget-soft-root"
     budget_root.mkdir(parents=True, exist_ok=True)
-    json_out(run("create", "--root", str(budget_root), "--id", "budget-soft", "--goal", "Soft limit test", "--max-sources", "10"))
+    json_out(run("create", "--root", str(budget_root), "--id", "budget-soft", "--goal", "Soft limit test", "--max-sources", "10", "--skip-preflight"))
     lease = json_out(run("begin", "--root", str(budget_root), "--id", "budget-soft"))
     res = Path(lease["paths"]["result_file"])
     res.write_text(
@@ -101,7 +101,7 @@ def test_budget_soft_limit(root: Path) -> None:
 def test_budget_runtime_hard_limit(root: Path) -> None:
     budget_root = root / "budget-rt-root"
     budget_root.mkdir(parents=True, exist_ok=True)
-    json_out(run("create", "--root", str(budget_root), "--id", "budget-rt", "--goal", "Runtime budget test", "--max-runtime-min", "60"))
+    json_out(run("create", "--root", str(budget_root), "--id", "budget-rt", "--goal", "Runtime budget test", "--max-runtime-min", "60", "--skip-preflight"))
     state_path = budget_root / "budget-rt" / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     old_ts = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=65)
