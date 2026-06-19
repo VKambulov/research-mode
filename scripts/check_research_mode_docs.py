@@ -20,7 +20,6 @@ from research_mode import build_parser  # noqa: E402
 
 REQUIRED_DOC_PATHS = [
     SKILL_DIR / "SKILL.md",
-    SKILL_DIR / "skill-card.md",
     SKILL_DIR / "README.md",
     SKILL_DIR / "TROUBLESHOOTING.md",
     SKILL_DIR / "ARCHITECTURE.md",
@@ -101,16 +100,6 @@ REQUIRED_SNIPPETS = {
         "result.adequacy",
         "delivery.review_ready=true",
         "scripts/check_research_mode.sh",
-    ],
-    "skill-card.md": [
-        "## Description:",
-        "## Owner",
-        "Apache License, Version 2.0",
-        "## Use Case:",
-        "## Known Risks and Mitigations:",
-        "## Skill Output:",
-        "## Evaluation Metrics Used:",
-        "Research Mode should not be used to hide uncertainty",
     ],
     "README.md": [
         "[English](#english) | [Русский](#русский)",

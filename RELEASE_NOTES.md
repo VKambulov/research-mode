@@ -8,7 +8,8 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
-_No changes yet._
+- Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
+  as generated registry artifacts and filters local copies during publish.
 
 ### v0.4.1 - 2026-06-19
 
@@ -211,7 +212,8 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
-_Пока нет изменений._
+- Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
+  registry-артефактом и фильтрует локальные копии при публикации.
 
 ### v0.4.1 - 2026-06-19
 
