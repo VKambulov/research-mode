@@ -10,6 +10,13 @@ License: Apache License, Version 2.0.
 
 _No changes yet._
 
+### v0.4.1 - 2026-06-19
+
+- Added `skill-card.md` so ClawHub can display a human-facing skill card instead
+  of relying on the longer agent-facing `SKILL.md`.
+- Added `skill-card.md` to the release package boundary and documentation smoke
+  checks so future releases do not accidentally omit it.
+
 ### v0.4.0 - 2026-06-19
 
 - Added the default `preflight` gate for new tasks. The first worker lease now
@@ -205,6 +212,13 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ### Unreleased
 
 _Пока нет изменений._
+
+### v0.4.1 - 2026-06-19
+
+- Добавлен `skill-card.md`, чтобы ClawHub показывал короткую пользовательскую
+  карточку скилла, а не опирался только на длинный агентский `SKILL.md`.
+- `skill-card.md` добавлен в границу релизного пакета и проверку документации,
+  чтобы будущие релизы не пропускали этот файл.
 
 ### v0.4.0 - 2026-06-19
 

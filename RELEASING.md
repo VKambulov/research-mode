@@ -32,6 +32,7 @@ Use `RELEASE_NOTES.md` as the version handoff.
 Include in the public package:
 
 - `SKILL.md`
+- `skill-card.md`
 - `README.md`
 - `TROUBLESHOOTING.md`
 - `ARCHITECTURE.md`
@@ -171,6 +172,7 @@ Python-пакет, не самостоятельный демон, не разм
 Включать в публичный пакет:
 
 - `SKILL.md`
+- `skill-card.md`
 - `README.md`
 - `TROUBLESHOOTING.md`
 - `ARCHITECTURE.md`
