@@ -8,6 +8,10 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+_No changes yet._
+
+### v0.4.0 - 2026-06-19
+
 - Added the default `preflight` gate for new tasks. The first worker lease now
   records `result.preflight`, writes `workspace/preflight/research-preflight.md`,
   and either continues, continues with warnings, pauses for setup, or blocks on a
@@ -199,6 +203,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ## Русский
 
 ### Unreleased
+
+_Пока нет изменений._
+
+### v0.4.0 - 2026-06-19
 
 - Добавлен обязательный по умолчанию preflight gate для новых задач. Первая
   рабочая блокировка теперь пишет `result.preflight`, создаёт
