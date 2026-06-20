@@ -73,6 +73,48 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    finalization = state.get("finalization") or {}
+    finalization_status = str(finalization.get("status") or "")
+    if finalization_status in {"rework", "needs_intervention"}:
+        seen_finalization_reasons: set[str] = set()
+        for validation_finding in finalization.get("last_validation_findings") or []:
+            if validation_finding.get("passed"):
+                continue
+            for reason in validation_finding.get("reasons") or []:
+                reason_code = str(reason or "").strip()
+                if not reason_code or reason_code in seen_finalization_reasons:
+                    continue
+                seen_finalization_reasons.add(reason_code)
+                status = (
+                    "manual_review_needed"
+                    if finalization_status == "needs_intervention"
+                    else "repair_needed"
+                )
+                findings.append(
+                    {
+                        "code": reason_code,
+                        "severity": "warning",
+                        "status": status,
+                        "message": "Finalization validation did not pass.",
+                        "details": {
+                            "finalization_status": finalization_status,
+                            "check": validation_finding.get("check"),
+                        },
+                    }
+                )
+                recommended_actions.append(
+                    {
+                        "kind": "repair"
+                        if finalization_status == "rework"
+                        else "manual_review",
+                        "warning_code": reason_code,
+                        "command": "begin"
+                        if finalization_status == "rework"
+                        else "summary --format text",
+                        "note": "Repair finalization defects before review.",
+                    }
+                )
+
     if not task.task_playbook_path.exists():
         findings.append(
             {

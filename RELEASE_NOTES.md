@@ -32,6 +32,10 @@ License: Apache License, Version 2.0.
 - `queue-status` now returns read-only queue findings for missing holder tasks,
   holder/task lock mismatches, stale waiters, and terminal tasks still present
   in waiters; task-specific queue findings also appear in `health`.
+- Added a deterministic reliability soak test for the finalization format
+  decision path. Failed finalization findings now surface in `health`, so
+  operators can see rework reasons such as `default_deliverable_format_mismatch`
+  without reading raw state.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -260,6 +264,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 - `queue-status` теперь возвращает read-only queue findings для missing holder
   task, holder/task lock mismatch, stale waiters и terminal tasks, оставшихся в
   waiters; task-specific queue findings также видны в `health`.
+- Добавлен deterministic reliability soak test для пути finalization format
+  decision. Failed finalization findings теперь видны в `health`, чтобы оператор
+  видел rework reasons вроде `default_deliverable_format_mismatch` без ручного
+  чтения raw state.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 
