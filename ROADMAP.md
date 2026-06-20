@@ -31,16 +31,20 @@ operator, or task-specific context.
   `RULES.example.md`.
 - Added `operator_attention` to `summary --format json` so monitors can
   identify stale active runs and follow a clear recovery action.
+- Added the initial stability diagnostics line: reliability counters,
+  repeated completion-validation loop detection, structural comparative
+  validation, delivery handoff/channel diagnostics, default deliverable format
+  decisions, queue mismatch findings, and deterministic reliability soak
+  coverage.
 - Updated public status messaging to make research stability, observability,
   and recovery the current project priority.
 
 ### Now
 
-- Make research stability the primary release gate. Long-running recurring tasks
-  should complete without routine manual state repair, silent lifecycle loops, or
-  unclear operator states. Observed failure classes should have detection,
-  operator guidance, recovery paths, regression tests, and recurring-task soak
-  coverage.
+- Continue hardening research stability as the primary release gate. The first
+  diagnostics line is in place; remaining work should focus on phase
+  progression, repeated low-yield turns, and recovery flows that are safe enough
+  to automate.
 - Improve lifecycle phase progression so tasks do not keep searching after they
   have repeatedly signaled that synthesis or finalization is the right next
   step. Surface stalled transitions in `summary`, `status`, and `health`, and
@@ -106,16 +110,20 @@ Roadmap ниже описывает публичное направление Gi
   и skill-local `RULES.md` через публичный шаблон `RULES.example.md`.
 - В `summary --format json` добавлен `operator_attention`, чтобы наблюдатели
   могли видеть stale active run и понятное действие для восстановления.
+- Добавлена начальная линия stability diagnostics: reliability counters,
+  detection повторяющихся completion-validation loops, структурная проверка
+  сравнительных результатов, delivery handoff/channel diagnostics, default
+  deliverable format decisions, queue mismatch findings и deterministic
+  reliability soak coverage.
 - Публичный статус проекта уточнён: текущий приоритет — стабильность,
   наблюдаемость и восстановимость исследований.
 
 ### Сейчас
 
-- Сделать стабильность исследований главным release gate. Длинные recurring-задачи
-  должны доходить до результата без регулярной ручной правки state, тихих
-  lifecycle-петель и непонятных operator states. Для наблюдаемых классов сбоев
-  нужны detection, operator guidance, recovery paths, regression tests и
-  recurring-task soak coverage.
+- Продолжать делать стабильность исследований главным release gate. Первая
+  линия диагностики уже есть; следующий фокус — progression между фазами,
+  повторяющиеся low-yield итерации и recovery flows, которые достаточно
+  безопасны для автоматизации.
 - Улучшить progression между фазами, чтобы задачи не продолжали поиск после
   повторяющихся сигналов, что следующий правильный шаг — synthesis или
   finalization. Stalled transitions должны быть видны в `summary`, `status` и

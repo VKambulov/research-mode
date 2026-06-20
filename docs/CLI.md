@@ -70,6 +70,14 @@ operators can perform one bounded iteration safely.
 - Repeated reliability failures may also appear in `operator_attention` and
   `health` as read-only diagnostics. They do not automatically pause schedules
   unless a later, explicitly documented recovery flow adds that behavior.
+- `queue-status` is read-only and may return `findings` for queue/task state
+  mismatches such as missing holder tasks, holder lock mismatches, stale
+  waiters, or terminal tasks still listed as waiters. Task-specific queue
+  findings also appear in `health`.
+- Finalization may record `deliverable_decision` with selected, desired, and
+  feasible user-facing formats. If finalization returns `rework`, failed
+  validation reason codes are included in `health` so operators can repair the
+  deliverable before review.
 
 ### Normal Completion Path
 
@@ -163,6 +171,14 @@ OpenClaw запустить или проверить Research Mode из чат�
   `operator_attention` и `health` как read-only diagnostics. Они не ставят
   расписания на паузу автоматически, пока отдельный документированный recovery
   flow явно не добавит такое поведение.
+- `queue-status` — read-only команда и может возвращать `findings` для
+  несостыковок queue/task state: missing holder task, holder lock mismatch,
+  stale waiter или terminal task, оставшаяся в waiters. Findings по конкретной
+  задаче также попадают в `health`.
+- Финальная проверка может записывать `deliverable_decision` с выбранным,
+  желаемым и фактически доступным пользовательским форматом. Если finalization
+  возвращает `rework`, failed validation reason codes попадают в `health`, чтобы
+  оператор мог исправить deliverable до review.
 
 ### Нормальный путь завершения
 
