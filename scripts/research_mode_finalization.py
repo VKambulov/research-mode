@@ -123,11 +123,15 @@ PRIMARY_KIND_NORMALIZATION = {
 }
 
 
-def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
+def expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
     return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
         str(primary_kind or "").strip().lower(),
         set(),
     )
+
+
+def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
+    return expected_formats_for_primary_kind(primary_kind)
 
 
 def _format_mismatch_reasons(

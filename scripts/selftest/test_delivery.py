@@ -737,6 +737,13 @@ def test_worker_final_accepts_pdf_primary_with_supporting_markdown(root: Path) -
         "raw_artifact_exposed_as_final" not in reasons,
         "final report artifacts under workspace/outputs should not be treated as raw",
     )
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    delivery = state.get("delivery") or {}
+    assert_eq(
+        delivery.get("primary_file"),
+        str(report_dir / "final.pdf"),
+        "delivery.primary_file should hand off the validated primary PDF candidate",
+    )
 
 
 def test_worker_final_tolerates_string_deliverable_decision_note(root: Path) -> None:
@@ -1065,6 +1072,65 @@ def test_awaiting_review_candidate_without_primary_file_sets_handoff_attention(r
         "delivery_artifact_handoff_failed",
         playbook,
         "task playbook should show delivery handoff warning",
+    )
+
+
+def test_awaiting_review_primary_file_mismatch_sets_handoff_attention(root: Path) -> None:
+    task_id = "review-primary-file-mismatch"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Review-ready PDF task should not hand off Markdown as primary.",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    reports_dir = task_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = reports_dir / "final.pdf"
+    markdown_path = task_dir / "final-report.md"
+    pdf_path.write_bytes(b"%PDF-1.7\n% test pdf\n")
+    markdown_path.write_text("# Final Report\n\nSupporting source.\n", encoding="utf-8")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["review"] = {"status": "pending", "review_gated": True}
+    state["finalization"] = {
+        **_HUMAN_READY_FINALIZATION,
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "reports/final.pdf",
+                "kind": "pdf_report",
+                "note": "Review-ready PDF candidate.",
+            }
+        ],
+    }
+    state["delivery"] = {
+        "review_ready": True,
+        "ready": False,
+        "primary_file": str(markdown_path),
+    }
+    state["artifacts"]["final_report_path"] = str(markdown_path)
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(run("summary", "--root", str(root), "--id", task_id, "--format", "json"))
+    attention = summary.get("operator_attention") or {}
+    assert_true(
+        any(
+            item.get("code") == "delivery_artifact_handoff_failed"
+            for item in attention.get("conditions") or []
+        ),
+        "awaiting_review PDF task with Markdown primary_file should surface handoff failure",
     )
 
 

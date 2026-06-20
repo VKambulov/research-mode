@@ -6,7 +6,10 @@ from typing import Any
 
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
-from research_mode_finalization import build_finalization_surface
+from research_mode_finalization import (
+    build_finalization_surface,
+    expected_formats_for_primary_kind,
+)
 from research_mode_reliability import (
     build_reliability_attention,
     merge_operator_attention,
@@ -88,6 +91,13 @@ WARNING_GUIDANCE = {
     },
 }
 
+
+def _path_format(path_value: str | None) -> str | None:
+    suffix = Path(str(path_value or "")).suffix.lower().lstrip(".")
+    if suffix in {"md", "markdown"}:
+        return "markdown"
+    return suffix or None
+
 DELIVERY_HANDOFF_WARNING_CODES = {
     "missing_reviewable_artifact",
     "delivery_ready_but_missing_primary",
@@ -153,6 +163,31 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
                         ),
                         "candidate_artifacts_count": len(candidate_artifacts),
                         "primary_file": primary_file,
+                    },
+                }
+            )
+        primary_kind = str(finalization.get("primary_deliverable_kind") or "")
+        expected_formats = expected_formats_for_primary_kind(primary_kind)
+        primary_format = _path_format(str(primary_file or ""))
+        if (
+            delivery.get("review_ready")
+            and candidate_artifacts
+            and primary_file
+            and expected_formats
+            and "package" not in expected_formats
+            and primary_format not in expected_formats
+        ):
+            warnings.append(
+                {
+                    "code": "delivery_artifact_handoff_failed",
+                    "message": "task is review-ready but delivery.primary_file does not match the primary deliverable format",
+                    "details": {
+                        "primary_deliverable_kind": finalization.get(
+                            "primary_deliverable_kind"
+                        ),
+                        "expected_formats": sorted(expected_formats),
+                        "primary_file": primary_file,
+                        "primary_file_format": primary_format,
                     },
                 }
             )

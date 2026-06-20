@@ -55,6 +55,7 @@ from research_mode_runtime import (
     snapshot_job_binding,
     suspend_bound_job,
 )
+from research_mode_finalization import expected_formats_for_primary_kind
 from research_mode_surface_delivery import (
     classify_delivery_error,
     notification_target_shape,
@@ -71,6 +72,7 @@ from research_mode_utils import (
     pending_result_path,
     parse_ts,
     read_json,
+    resolve_under_task,
     utc_now,
 )
 
@@ -219,6 +221,46 @@ def _package_delivery_from_validation(
                     "primary_file": entrypoint_path,
                     "attachments": artifact.get("attachments") or [],
                 }
+    return None
+
+
+def _primary_file_from_validation(
+    task: ResearchTask,
+    validation_result: dict[str, Any] | None,
+) -> str | None:
+    if not validation_result or not validation_result.get("passed"):
+        return None
+
+    decision = validation_result.get("deliverable_decision") or {}
+    selected_kind = str(decision.get("selected_kind") or "").strip().lower()
+    expected_formats = expected_formats_for_primary_kind(selected_kind)
+    if not expected_formats:
+        return None
+
+    for finding in validation_result.get("findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            artifact_format = str(artifact.get("format") or "").strip().lower()
+            if artifact_format not in expected_formats:
+                continue
+            if artifact.get("reasons"):
+                continue
+            if not artifact.get("exists") or not artifact.get("inside_task"):
+                continue
+            if artifact.get("is_file") is False:
+                continue
+            artifact_path = str(artifact.get("path") or "").strip()
+            if not artifact_path:
+                continue
+            try:
+                resolved = resolve_under_task(
+                    task.task_dir, artifact_path, label="delivery primary artifact"
+                )
+            except ValidationError:
+                continue
+            if resolved.is_file():
+                return str(resolved)
     return None
 
 
@@ -1121,7 +1163,12 @@ def _finish_iteration_impl(
                             )
                             saved_report_path = str(task.final_report_path)
                             state["artifacts"]["final_report_path"] = saved_report_path
-                            state["delivery"]["primary_file"] = saved_report_path
+                            primary_file = _primary_file_from_validation(
+                                task, finalization_validation
+                            )
+                            state["delivery"]["primary_file"] = (
+                                primary_file or saved_report_path
+                            )
                         finalization_state["status"] = "passed"
                         state["delivery"]["review_ready"] = True
                         state["delivery"]["ready"] = False
