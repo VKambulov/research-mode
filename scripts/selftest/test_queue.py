@@ -5,7 +5,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from .helpers import assert_eq, json_out, run
+from .helpers import assert_eq, assert_in, assert_true, json_out, run
 
 
 def _create_task(root: Path, task_id: str, goal: str | None = None) -> None:
@@ -63,6 +63,10 @@ def _finish_iteration(root: Path, task_id: str, lease: dict) -> dict:
 
 def _queue_lock_path(root: Path) -> Path:
     return root / ".research-mode" / "queue" / "global-worker-lock.json"
+
+
+def _waiters_path(root: Path) -> Path:
+    return root / ".research-mode" / "queue" / "waiters.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -198,6 +202,114 @@ def test_queue_status_reports_active_holder_and_waiters(root: Path) -> None:
     ).stdout
     assert "Queue: waiting for global research worker" in summary_text
     _finish_iteration(root, "queue-status-a", lease_a)
+
+
+def test_queue_status_reports_missing_holder_task_finding(root: Path) -> None:
+    root = root / "queue-missing-holder-case"
+    _create_task(root, "queue-next")
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    _write_json(
+        _queue_lock_path(root),
+        {
+            "status": "held",
+            "task_id": "missing-holder",
+            "task_path": str(root / "missing-holder"),
+            "run_id": "missing-run",
+            "lease_token": "missing-token",
+            "started_at": now,
+            "stale_timeout_min": 30,
+            "policy": "global_iteration_lock",
+        },
+    )
+
+    queue_status = json_out(run("queue-status", "--root", str(root)))
+    findings = queue_status.get("findings") or []
+    assert_true(
+        any(item.get("code") == "queue_holder_task_missing" for item in findings),
+        "queue-status should expose missing holder task",
+    )
+
+    text = run("queue-status", "--root", str(root), "--format", "text").stdout
+    assert_in(
+        "queue_holder_task_missing",
+        text,
+        "queue-status text should show missing holder finding",
+    )
+
+
+def test_queue_status_reports_holder_task_lock_mismatch_in_health(root: Path) -> None:
+    root = root / "queue-holder-mismatch-case"
+    _create_task(root, "queue-mismatch")
+    lease = json_out(run("begin", "--root", str(root), "--id", "queue-mismatch"))
+    state_path = root / "queue-mismatch" / "state.json"
+    state = _read_json(state_path)
+    state["lock"]["run_id"] = "different-run"
+    _write_json(state_path, state)
+
+    queue_status = json_out(run("queue-status", "--root", str(root)))
+    findings = queue_status.get("findings") or []
+    assert_true(
+        any(item.get("code") == "queue_holder_task_lock_mismatch" for item in findings),
+        "queue-status should expose holder/task lock mismatch",
+    )
+
+    health = json_out(run("health", "--root", str(root), "--id", "queue-mismatch"))
+    assert_true(
+        any(
+            item.get("code") == "queue_holder_task_lock_mismatch"
+            for item in health.get("findings") or []
+        ),
+        "task health should include task-specific queue mismatch",
+    )
+    assert_eq(lease.get("status"), "leased", "test should begin from a real lease")
+
+
+def test_queue_status_reports_pruned_waiter_findings(root: Path) -> None:
+    root = root / "queue-waiter-findings-case"
+    _create_task(root, "terminal-waiter")
+    _create_task(root, "active-waiter")
+    terminal_state_path = root / "terminal-waiter" / "state.json"
+    terminal_state = _read_json(terminal_state_path)
+    terminal_state["status"] = "complete"
+    _write_json(terminal_state_path, terminal_state)
+    old_seen = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=180)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    _write_json(
+        _waiters_path(root),
+        {
+            "waiters": [
+                {
+                    "task_id": "terminal-waiter",
+                    "task_path": str(root / "terminal-waiter"),
+                    "first_waiting_at": old_seen,
+                    "last_seen_at": old_seen,
+                    "attempt_count": 5,
+                },
+                {
+                    "task_id": "active-waiter",
+                    "task_path": str(root / "active-waiter"),
+                    "first_waiting_at": old_seen,
+                    "last_seen_at": old_seen,
+                    "attempt_count": 3,
+                },
+            ]
+        },
+    )
+
+    queue_status = json_out(run("queue-status", "--root", str(root)))
+    findings = queue_status.get("findings") or []
+    codes = [item.get("code") for item in findings]
+    assert_in(
+        "queue_terminal_task_waiter",
+        codes,
+        "queue-status should report terminal task waiter before pruning",
+    )
+    assert_in(
+        "queue_stale_waiter",
+        codes,
+        "queue-status should report stale waiter before pruning",
+    )
 
 
 def test_queue_status_uses_effective_worker_timeout_for_stale_holder(

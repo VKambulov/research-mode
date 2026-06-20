@@ -170,12 +170,16 @@ Checks:
 - `python3 scripts/research_mode.py queue-status --root <root>`;
 - task `status --format json` and `summary --format text`;
 - `queue.status`, `queue.position`, and `queue.blocked_by_task_id`.
+- queue findings in `queue-status --format json`, especially
+  `queue_holder_task_missing`, `queue_holder_task_lock_mismatch`,
+  `queue_stale_waiter`, and `queue_terminal_task_waiter`.
 
 Safe actions:
 
 - wait for the active task to finish if the holder is fresh;
 - treat `deferred:global-research-lock` as normal waiting, not a failed cron tick;
-- inspect stale queue state before manual repair.
+- inspect queue findings before manual repair; task-specific queue mismatches
+  also appear in `health`.
 
 ### Completion Was Rejected
 
@@ -637,12 +641,16 @@ python3 scripts/research_mode.py status --id <research-id> --format json
 - `python3 scripts/research_mode.py queue-status --root <root>`;
 - `status --format json` и `summary --format text` для задачи;
 - `queue.status`, `queue.position` и `queue.blocked_by_task_id`.
+- queue findings в `queue-status --format json`, особенно
+  `queue_holder_task_missing`, `queue_holder_task_lock_mismatch`,
+  `queue_stale_waiter` и `queue_terminal_task_waiter`.
 
 Безопасные действия:
 
 - подождать завершения активной задачи, если holder свежий;
 - считать `deferred:global-research-lock` штатным ожиданием, а не ошибкой cron tick;
-- перед ручным исправлением проверить stale queue state.
+- перед ручным исправлением проверить queue findings; task-specific queue
+  mismatches также видны в `health`.
 
 ### Завершение отклонено
 

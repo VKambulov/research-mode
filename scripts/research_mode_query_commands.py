@@ -210,6 +210,13 @@ def queue_status_command(args: argparse.Namespace) -> int:
                 sys.stdout.write(
                     f"- {idx}. {waiter.get('task_id')} since {waiter.get('first_waiting_at')}\n"
                 )
+        findings = payload.get("findings") or []
+        if findings:
+            sys.stdout.write("Findings:\n")
+            for finding in findings:
+                sys.stdout.write(
+                    f"- {finding.get('code')}: {finding.get('message')}\n"
+                )
         return 0
     json_dump(payload)
     return 0

@@ -564,6 +564,11 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
 
+`queue-status` also returns read-only findings when queue state disagrees with
+task state, such as a missing holder task, a holder/task lock mismatch, a stale
+waiter, or a terminal task still listed as waiting. Task-specific queue findings
+are included in `health`.
+
 For automated monitors, `summary --format json` includes
 `operator_attention.status`, `conditions`, and `recommended_actions`. Treat any
 status other than `ok` as a reason to alert or follow the recommended lifecycle
@@ -1306,6 +1311,11 @@ python3 scripts/research_mode.py queue-status --root <research-root>
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
+
+`queue-status` также возвращает read-only findings, если состояние очереди не
+сходится с состоянием задач: missing holder task, holder/task lock mismatch,
+stale waiter или terminal task, которая всё ещё числится waiting. Findings,
+относящиеся к конкретной задаче, попадают и в `health`.
 
 Для автоматических наблюдателей `summary --format json` содержит
 `operator_attention.status`, `conditions` и `recommended_actions`. Любой статус

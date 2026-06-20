@@ -7,6 +7,7 @@ from typing import Any
 
 from research_mode_lifecycle_commands import load_result_payload
 from research_mode_lifecycle_helpers import stale_lock
+from research_mode_queue import read_queue_status
 from research_mode_reliability import build_reliability_health_findings
 from research_mode_registry import resolve_task_from_args
 from research_mode_surfaces import build_summary_payload
@@ -55,6 +56,20 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
                 "kind": "manual_review",
                 "warning_code": finding.get("code"),
                 "note": finding.get("message") or "Inspect reliability condition.",
+            }
+        )
+
+    task_id = state.get("id")
+    for finding in read_queue_status(task.task_dir.parent).get("findings") or []:
+        details = finding.get("details") or {}
+        if details.get("task_id") != task_id:
+            continue
+        findings.append(finding)
+        recommended_actions.append(
+            {
+                "kind": "manual_review",
+                "warning_code": finding.get("code"),
+                "note": finding.get("message") or "Inspect queue state.",
             }
         )
 

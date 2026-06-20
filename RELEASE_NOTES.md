@@ -29,6 +29,9 @@ License: Apache License, Version 2.0.
   chat/thread delivery infer `pdf_report` unless Markdown was explicitly
   requested, and accidental Markdown-only handoff is rejected as
   `default_deliverable_format_mismatch`.
+- `queue-status` now returns read-only queue findings for missing holder tasks,
+  holder/task lock mismatches, stale waiters, and terminal tasks still present
+  in waiters; task-specific queue findings also appear in `health`.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -254,6 +257,9 @@ Before publishing, confirm `LICENSE` is included in the public package.
   отчёты для chat/thread доставки по умолчанию выбирают `pdf_report`, если
   Markdown не был явно запрошен, а случайная Markdown-only передача отклоняется
   как `default_deliverable_format_mismatch`.
+- `queue-status` теперь возвращает read-only queue findings для missing holder
+  task, holder/task lock mismatch, stale waiters и terminal tasks, оставшихся в
+  waiters; task-specific queue findings также видны в `health`.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 
