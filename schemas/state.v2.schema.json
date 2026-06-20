@@ -55,6 +55,18 @@
     },
     "adequacy": {"type": "object", "additionalProperties": true},
     "finalization": {"type": "object", "additionalProperties": true},
+    "reliability": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {"type": "integer"},
+        "failure_counters": {"type": "object", "additionalProperties": true},
+        "last_events": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
     "queue": {"type": "object", "additionalProperties": true}
   }
 }

@@ -7,6 +7,7 @@ from typing import Any
 
 from research_mode_lifecycle_commands import load_result_payload
 from research_mode_lifecycle_helpers import stale_lock
+from research_mode_reliability import build_reliability_health_findings
 from research_mode_registry import resolve_task_from_args
 from research_mode_surfaces import build_summary_payload
 from research_mode_utils import ValidationError, json_dump, pending_result_path
@@ -44,6 +45,16 @@ def build_health_payload(task, state: dict[str, Any]) -> dict[str, Any]:
                 "warning_code": guidance.get("warning_code"),
                 "note": guidance.get("note") or "",
                 "checklist": guidance.get("checklist") or [],
+            }
+        )
+
+    for finding in build_reliability_health_findings(state):
+        findings.append(finding)
+        recommended_actions.append(
+            {
+                "kind": "manual_review",
+                "warning_code": finding.get("code"),
+                "note": finding.get("message") or "Inspect reliability condition.",
             }
         )
 

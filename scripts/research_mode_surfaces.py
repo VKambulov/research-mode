@@ -7,6 +7,10 @@ from typing import Any
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
 from research_mode_finalization import build_finalization_surface
+from research_mode_reliability import (
+    build_reliability_attention,
+    merge_operator_attention,
+)
 from research_mode_task import ResearchTask
 from research_mode_utils import (
     ValidationError,
@@ -296,12 +300,13 @@ def build_operator_attention(
     else:
         status = "ok"
 
-    return {
+    base_attention = {
         "status": status,
         "has_conditions": bool(conditions),
         "conditions": conditions,
         "recommended_actions": recommended_actions,
     }
+    return merge_operator_attention(base_attention, build_reliability_attention(state))
 
 
 def format_source_bullet(source: dict[str, Any]) -> str:

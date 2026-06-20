@@ -67,6 +67,9 @@ operators can perform one bounded iteration safely.
 - `summary --format json` exposes `operator_attention` for execution-health
   conditions that automated watchers must not ignore, including stale active
   runs with or without pending worker results.
+- Repeated reliability failures may also appear in `operator_attention` and
+  `health` as read-only diagnostics. They do not automatically pause schedules
+  unless a later, explicitly documented recovery flow adds that behavior.
 
 ### Normal Completion Path
 
@@ -156,6 +159,10 @@ OpenClaw запустить или проверить Research Mode из чат�
 - `summary --format json` отдаёт `operator_attention` для execution-health
   состояний, которые автоматические watcher'ы не должны игнорировать, включая
   stale active run с pending worker result или без него.
+- Повторяющиеся reliability failures также могут отображаться в
+  `operator_attention` и `health` как read-only diagnostics. Они не ставят
+  расписания на паузу автоматически, пока отдельный документированный recovery
+  flow явно не добавит такое поведение.
 
 ### Нормальный путь завершения
 

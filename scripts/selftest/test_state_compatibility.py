@@ -23,6 +23,7 @@ def _write_legacy_state(root: Path, task_id: str) -> None:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state.pop("queue", None)
     state.pop("delivery_intents", None)
+    state.pop("reliability", None)
     owner = state.get("owner") or {}
     owner.pop("thread_id", None)
     owner.pop("topic_id", None)
@@ -63,3 +64,38 @@ def test_old_state_gets_reliability_defaults_on_status(root: Path) -> None:
         status["delivery"],
         "delivery should include package_path default",
     )
+    assert_in(
+        "reliability",
+        status,
+        "status should expose reliability defaults for old states",
+    )
+    assert_eq(
+        status["reliability"].get("schema_version"),
+        1,
+        "old task should get reliability schema version default",
+    )
+    assert_eq(
+        status["reliability"].get("failure_counters"),
+        {},
+        "old task should start with no reliability counters",
+    )
+    assert_eq(
+        status["reliability"].get("last_events"),
+        [],
+        "old task should start with no reliability events",
+    )
+
+    summary = json_out(
+        run("summary", "--root", str(root), "--id", "legacy-state-status", "--format", "json")
+    )
+    assert_eq(
+        summary.get("operator_attention", {}).get("status"),
+        "ok",
+        "legacy state should not produce reliability attention by default",
+    )
+    health = json_out(
+        run("health", "--root", str(root), "--id", "legacy-state-status", "--format", "json")
+    )
+    assert_eq(health.get("status"), "ok", "legacy state should be healthy by default")
+    lease = json_out(run("begin", "--root", str(root), "--id", "legacy-state-status"))
+    assert_eq(lease.get("status"), "leased", "legacy state should still lease work")

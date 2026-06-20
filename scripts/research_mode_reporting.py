@@ -4,6 +4,7 @@ from typing import Any
 
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_finalization import build_finalization_surface
+from research_mode_reliability import build_reliability_attention
 from research_mode_surfaces import compute_budget_phase, compute_consistency_warnings
 from research_mode_task import ResearchTask
 from research_mode_utils import (
@@ -451,6 +452,35 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
                 reasons_str = ", ".join(finding.get("reasons") or []) or "ok"
                 lines.append(f"  - {check}: {passed} ({reasons_str})")
         lines.append("")
+
+    reliability_attention = build_reliability_attention(state)
+    lines.extend(
+        [
+            "## Reliability",
+            "",
+            f"- Status: `{reliability_attention.get('status') or 'ok'}`",
+        ]
+    )
+    reliability = state.get("reliability") or {}
+    counters = reliability.get("failure_counters") or {}
+    if counters:
+        lines.append("- Failure counters:")
+        for code, counter in sorted(counters.items()):
+            if not isinstance(counter, dict):
+                continue
+            lines.append(
+                f"  - `{code}`: status={counter.get('status') or '-'}, "
+                f"count={int(counter.get('count') or 0)}, "
+                f"fingerprint={counter.get('fingerprint') or '-'}"
+            )
+    conditions = reliability_attention.get("conditions") or []
+    if conditions:
+        lines.append("- Conditions:")
+        for condition in conditions[:5]:
+            lines.append(
+                f"  - `{condition.get('code')}`: {condition.get('message') or '-'}"
+            )
+    lines.append("")
 
     delivery = state.get("delivery") or {}
     if delivery.get("primary_file") or delivery.get("ready"):

@@ -35,6 +35,11 @@ without requiring an operator to run a manual migration first.
 Use explicit migration only when a change cannot be represented through safe
 defaults or when old state would otherwise be ambiguous.
 
+Current optional compatibility defaults include owner routing fields, delivery
+intent lists, queue state, delivery package markers, and the `reliability`
+diagnostic block. Older tasks may omit these fields and should still render
+through `status`, `summary`, `health`, and `begin` without a migration command.
+
 ### Testing
 
 State compatibility belongs in automated tests. The current compatibility test
@@ -79,6 +84,11 @@ Readers должны по возможности нормализовать ст
 
 Явная миграция нужна только тогда, когда изменение нельзя выразить через
 безопасные defaults или старое состояние иначе становится неоднозначным.
+
+Текущие optional defaults включают поля owner routing, список delivery intents,
+queue state, delivery package markers и диагностический блок `reliability`.
+Старые задачи могут не иметь этих полей и всё равно должны отображаться через
+`status`, `summary`, `health` и `begin` без ручной миграции.
 
 ### Тестирование
 
