@@ -195,11 +195,15 @@ Checks:
 
 ```bash
 python3 scripts/research_mode.py summary --id <research-id> --format json
+python3 scripts/research_mode.py health --id <research-id> --format json
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 ```
 
 Safe actions:
 
+- if `operator_attention` or `health.findings` reports
+  `completion_validation_retry_loop`, inspect the repeated rejection reasons
+  before letting another recurring worker retry the same finalization;
 - inspect `summary --format json` or `task-playbook.md` for
   `adequacy.operator_next_action`, `coverage_gaps`, and `blocking_reasons`;
 - let the next worker turn handle `needs_research`, `needs_analysis`, or
@@ -590,11 +594,15 @@ python3 scripts/research_mode.py status --id <research-id> --format json
 
 ```bash
 python3 scripts/research_mode.py summary --id <research-id> --format json
+python3 scripts/research_mode.py health --id <research-id> --format json
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 ```
 
 Безопасные действия:
 
+- если `operator_attention` или `health.findings` показывает
+  `completion_validation_retry_loop`, проверить повторяющиеся причины отказа
+  перед тем, как давать recurring worker снова повторить ту же финализацию;
 - проверить в `summary --format json` или `task-playbook.md` поля
   `adequacy.operator_next_action`, `coverage_gaps` и `blocking_reasons`;
 - дать следующей рабочей итерации обработать `needs_research`,

@@ -11,6 +11,10 @@ License: Apache License, Version 2.0.
 - Added a minimal read-only reliability diagnostics foundation: optional
   `state.reliability` counters, summary/health/operator-attention surfacing,
   task-playbook visibility, and old-state compatibility tests.
+- Repeated identical completion-validation rejections now record reliability
+  events and surface `completion_validation_retry_loop` as manual operator
+  attention after the second repeat; a successful completion validation clears
+  the active retry warning.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -218,6 +222,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 - Добавлена минимальная read-only основа reliability diagnostics: optional
   counters в `state.reliability`, вывод в summary/health/operator-attention,
   видимость в task-playbook и проверки совместимости старых state.
+- Повторяющиеся одинаковые отказы completion validation теперь записываются как
+  reliability events и после второго повтора показывают
+  `completion_validation_retry_loop` как ручное внимание оператора; успешная
+  completion validation очищает активное предупреждение.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 

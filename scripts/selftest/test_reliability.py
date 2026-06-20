@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .helpers import assert_eq, assert_in, assert_true, json_out, run
+from .helpers import route_to_finalize, human_ready_finalization
 
 from research_mode_reliability import (
     build_reliability_attention,
@@ -241,3 +242,184 @@ def test_reliability_surfaces_are_read_only(root: Path) -> None:
     run("queue-status", "--root", str(root), "--format", "json")
     after = state_path.read_text(encoding="utf-8")
     assert_eq(after, before, "read-only operator commands must not rewrite state")
+
+
+def _finish_unstructured_completion(root: Path, task_id: str, lease: dict) -> dict:
+    result = Path(lease["paths"]["result_file"])
+    result.parent.mkdir(parents=True, exist_ok=True)
+    result.write_text(
+        json.dumps(
+            {
+                "summary": "Tried to finalize without the requested structure.",
+                "next_angle": "rewrite final report with real bullets",
+                "meaningful_progress": True,
+                "phase": "finalize",
+                "open_questions": [],
+                "sources": [{"title": "bullet-source", "url": "https://example.com/bullet"}],
+                "findings": [{"kind": "note", "text": "There is at least one concrete point."}],
+                "notify_recommendation": "silent",
+                "should_complete": True,
+                "final_report_markdown": "# Итог\n\nЭто сплошной абзац без оформленного списка.",
+                "finalization": human_ready_finalization(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            lease["run_id"],
+            "--result-file",
+            str(result),
+        )
+    )
+
+
+def test_repeated_completion_validation_rejection_sets_operator_attention(root: Path) -> None:
+    task_id = "repeated-completion-rejection"
+    run(
+        "create",
+        "--root",
+        str(root),
+        "--id",
+        task_id,
+        "--goal",
+        "Repeated completion rejection should be visible to operators.",
+        "--deliverable",
+        "итог в виде bullet list",
+        "--skip-preflight",
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    lease = route_to_finalize(root, task_id, lease)
+
+    first = _finish_unstructured_completion(root, task_id, lease)
+    assert_eq(first["status"], "idle", "first completion rejection should stay on normal rework path")
+    first_summary = json_out(
+        run("summary", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    assert_eq(
+        first_summary.get("operator_attention", {}).get("status"),
+        "ok",
+        "first completion rejection should not require manual review",
+    )
+
+    second_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    assert_eq(second_lease["phase"], "finalize", "rejected completion should retry finalize phase")
+    second = _finish_unstructured_completion(root, task_id, second_lease)
+    assert_eq(second["status"], "idle", "second rejection should still avoid auto-suspension")
+    second_summary = json_out(
+        run("summary", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    attention = second_summary.get("operator_attention") or {}
+    assert_eq(
+        attention.get("status"),
+        "manual_review_needed",
+        "second identical completion rejection should require manual review",
+    )
+    assert_true(
+        any(
+            item.get("code") == "completion_validation_retry_loop"
+            for item in attention.get("conditions") or []
+        ),
+        "operator attention should expose completion_validation_retry_loop",
+    )
+
+
+def test_successful_completion_clears_completion_validation_retry_attention(root: Path) -> None:
+    task_id = "completion-rejection-cleared"
+    run(
+        "create",
+        "--root",
+        str(root),
+        "--id",
+        task_id,
+        "--goal",
+        "Successful completion should clear stale completion retry attention.",
+        "--deliverable",
+        "итог в виде bullet list",
+        "--skip-preflight",
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    lease = route_to_finalize(root, task_id, lease)
+    _finish_unstructured_completion(root, task_id, lease)
+    second_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    _finish_unstructured_completion(root, task_id, second_lease)
+
+    retry_summary = json_out(
+        run("summary", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    assert_eq(
+        retry_summary.get("operator_attention", {}).get("status"),
+        "manual_review_needed",
+        "test setup should create visible retry attention before successful completion",
+    )
+
+    success_lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    success_result = Path(success_lease["paths"]["result_file"])
+    success_result.write_text(
+        json.dumps(
+            {
+                "summary": "Prepared a valid bullet-list final report.",
+                "next_angle": "done",
+                "meaningful_progress": True,
+                "phase": "finalize",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "final",
+                "should_complete": True,
+                "final_report_markdown": (
+                    "# Итог\n\n"
+                    "## Summary\n\n"
+                    "Этот финальный отчет намеренно достаточно подробный, чтобы пройти "
+                    "проверку готовности для человека после двух одинаковых отказов "
+                    "completion validation. Он показывает, что исправленный отчет может "
+                    "вернуть задачу на обычный review-gate без сохранения устаревшего "
+                    "ручного предупреждения.\n\n"
+                    "## Key Findings\n\n"
+                    "- Первый вывод оформлен как пункт списка.\n"
+                    "- Второй вывод тоже оформлен как пункт списка.\n\n"
+                    "## Evidence\n\n"
+                    "Структура отчета соответствует запрошенному bullet-list формату, "
+                    "а текст содержит достаточно содержания для recipient-style review.\n\n"
+                    "## Conclusion\n\n"
+                    "Итоговый отчет готов к проверке."
+                ),
+                "finalization": human_ready_finalization(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            success_lease["run_id"],
+            "--result-file",
+            str(success_result),
+        )
+    )
+    assert_eq(finished["status"], "awaiting_review", "valid completion should reach review gate")
+    success_summary = json_out(
+        run("summary", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    assert_eq(
+        success_summary.get("operator_attention", {}).get("status"),
+        "ok",
+        "successful completion should clear stale retry attention",
+    )

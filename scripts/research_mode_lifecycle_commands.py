@@ -46,6 +46,7 @@ from research_mode_reasons import (
     reason_for_finish,
     set_history_reason,
 )
+from research_mode_reliability import clear_failure_counter, record_failure_event
 from research_mode_queue import acquire_global_queue, release_global_queue
 from research_mode_reporting import append_run_log, refresh_task_playbook
 from research_mode_runtime import (
@@ -74,6 +75,54 @@ REVIEW_WAIT_STATUSES = {"awaiting_review"}
 PHASES = {"preflight", "search", "analyze", "synthesize", "verify", "finalize"}
 PREFLIGHT_DECISIONS = {"go", "go_with_warnings", "needs_setup", "blocked", "skipped"}
 WORKER_PREFLIGHT_DECISIONS = PREFLIGHT_DECISIONS - {"skipped"}
+
+
+def _replace_state_contents(state: dict[str, Any], updated: dict[str, Any]) -> None:
+    state.clear()
+    state.update(updated)
+
+
+def _record_completion_validation_rejection(
+    state: dict[str, Any],
+    *,
+    run_id: str,
+    phase: str,
+    completion_validation: dict[str, Any],
+    at: str,
+) -> None:
+    updated = record_failure_event(
+        state,
+        {
+            "code": "completion_validation_retry_loop",
+            "severity": "warning",
+            "phase": phase,
+            "run_id": run_id,
+            "reasons": completion_validation.get("reasons") or [],
+        },
+        at=at,
+    )
+    _replace_state_contents(state, updated)
+
+
+def _clear_completion_validation_retry_counter(
+    state: dict[str, Any],
+    *,
+    at: str,
+) -> None:
+    counter = (
+        ((state.get("reliability") or {}).get("failure_counters") or {}).get(
+            "completion_validation_retry_loop"
+        )
+        or {}
+    )
+    if counter.get("status") != "active":
+        return
+    updated = clear_failure_counter(
+        state,
+        "completion_validation_retry_loop",
+        at=at,
+    )
+    _replace_state_contents(state, updated)
 
 
 def _normalize_preflight_payload(value: Any) -> dict[str, Any]:
@@ -1010,6 +1059,7 @@ def _finish_iteration_impl(
                 "candidate_status": "complete",
             }
             if completion_validation["passed"]:
+                _clear_completion_validation_retry_counter(state, at=now)
                 if is_worker_initiated_final:
                     finalization_validation = _run_v13_finalization_validation(
                         task, state, payload, report_markdown=str(report)
@@ -1111,6 +1161,13 @@ def _finish_iteration_impl(
                     if review.get("status") == "changes_requested":
                         review["status"] = "pending"
             else:
+                _record_completion_validation_rejection(
+                    state,
+                    run_id=args.run_id,
+                    phase=phase,
+                    completion_validation=completion_validation,
+                    at=now,
+                )
                 next_status = "idle"
                 clear_reviewable_candidate(state)
 
