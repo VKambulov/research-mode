@@ -426,6 +426,14 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             lines.append(
                 f"- Primary deliverable kind: {finalization.get('primary_deliverable_kind')}"
             )
+        decision = finalization.get("deliverable_decision") or {}
+        if decision:
+            lines.append(
+                "- Deliverable format decision: "
+                f"{decision.get('selected_kind') or '-'} "
+                f"(source={decision.get('source') or '-'}, "
+                f"feasible={decision.get('feasible_kind') or '-'})"
+            )
         if finalization.get("internal_artifacts_count") or finalization.get(
             "candidate_artifacts_count"
         ):

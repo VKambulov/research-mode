@@ -484,6 +484,14 @@ For multi-file deliverables, use a finalization candidate with
 `README.md`, `index.md`, `final-report.md`, or an explicit `entrypoint`, and all
 files must resolve inside the task directory.
 
+If the user did not request a specific output format, finalization records an
+optional `deliverable_decision` with the selected user-facing format, the
+desired kind, and the currently feasible kind. Long narrative reports delivered
+in chat/thread contexts default to `pdf_report`; Markdown is accepted as the
+final user-facing format only when it was explicitly requested or is already the
+clearest output. If `desired_kind` and `feasible_kind` differ, keep the task in
+finalization instead of marking delivery ready.
+
 #### Launch Mode 5: Scheduling Existing Tasks
 
 Use `schedule` when a task already exists and should receive recurring isolated
@@ -1419,6 +1427,14 @@ python3 scripts/research_mode.py mark-delivered \
 
 `awaiting_review` само по себе не означает готовность к доставке.
 `delivery.ready=true` появляется после утверждения или явной отметки доставки.
+
+Если пользователь не запросил конкретный формат результата, finalization
+записывает optional `deliverable_decision`: выбранный пользовательский формат,
+желаемый формат и фактически доступный формат. Длинные отчёты для chat/thread
+доставки по умолчанию выбирают `pdf_report`; Markdown считается финальным
+пользовательским форматом только когда он явно запрошен или действительно самый
+понятный вариант. Если `desired_kind` и `feasible_kind` расходятся, задача
+остаётся в finalization и не помечается готовой к доставке.
 
 #### Связанное исследование
 

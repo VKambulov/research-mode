@@ -24,6 +24,11 @@ License: Apache License, Version 2.0.
 - Failed delivery notifications can now carry optional provider-neutral
   diagnostics: `error_code` and sanitized `provider_target_shape`, with
   `delivery_channel_addressing_failed` surfaced in summary/health.
+- Finalization now records an optional `deliverable_decision` with selected,
+  desired, and feasible user-facing formats. Long narrative reports for
+  chat/thread delivery infer `pdf_report` unless Markdown was explicitly
+  requested, and accidental Markdown-only handoff is rejected as
+  `default_deliverable_format_mismatch`.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -244,6 +249,11 @@ Before publishing, confirm `LICENSE` is included in the public package.
 - Ошибки доставки теперь могут хранить optional provider-neutral diagnostics:
   `error_code` и безопасную `provider_target_shape`; проблема формы цели
   выводится в summary/health как `delivery_channel_addressing_failed`.
+- Финальная проверка теперь записывает optional `deliverable_decision` с
+  выбранным, желаемым и фактически доступным пользовательским форматом. Длинные
+  отчёты для chat/thread доставки по умолчанию выбирают `pdf_report`, если
+  Markdown не был явно запрошен, а случайная Markdown-only передача отклоняется
+  как `default_deliverable_format_mismatch`.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 

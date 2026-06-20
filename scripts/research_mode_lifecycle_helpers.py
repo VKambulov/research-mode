@@ -10,6 +10,7 @@ from research_mode_adequacy import build_adequacy_contract, build_adequacy_guida
 from research_mode_finalization import (
     RAW_FINAL_ARTIFACT_SIGNALS,
     build_finalization_contract,
+    check_deliverable_format_decision,
     inspect_candidate_artifacts,
 )
 from research_mode_payloads import result_template
@@ -925,6 +926,16 @@ def validate_candidate_final(
     if not artifact_check["passed"]:
         all_passed = False
 
+    format_decision_check = check_deliverable_format_decision(
+        state=state,
+        finalization=payload.get("finalization"),
+        report_markdown=report_markdown,
+        artifact_check=artifact_check,
+    )
+    findings.append(format_decision_check)
+    if not format_decision_check["passed"]:
+        all_passed = False
+
     primary_kind = str(
         (payload.get("finalization") or {}).get("primary_deliverable_kind") or ""
     ).strip().lower()
@@ -987,6 +998,18 @@ def validate_candidate_final(
         "findings": findings,
         "reasons": reasons,
         "status": "passed" if all_passed else "rejected",
+        "deliverable_decision": {
+            key: format_decision_check.get(key)
+            for key in (
+                "selected_kind",
+                "desired_kind",
+                "feasible_kind",
+                "reason",
+                "source",
+                "alternatives_considered",
+            )
+            if key in format_decision_check
+        },
     }
 
 

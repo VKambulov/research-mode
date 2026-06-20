@@ -260,6 +260,28 @@ Safe action:
 - use `request-changes` for worker rework, or `mark-delivered --primary-file ...`
   only after the correct primary file exists and has been reviewed.
 
+### `default_deliverable_format_mismatch`
+
+Meaning:
+
+- the user did not request a specific format, so finalization inferred a better
+  user-facing format than the artifact the worker produced; for example a long
+  narrative report destined for a chat/thread inferred `pdf_report`, while the
+  worker only produced Markdown.
+
+Checks:
+
+- `finalization.deliverable_decision.selected_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.last_validation_findings`.
+
+Safe action:
+
+- ask the worker to produce the desired user-facing artifact, or explicitly
+  request Markdown if Markdown is truly the intended final format;
+- do not mark delivery ready while `desired_kind` and `feasible_kind` disagree.
+
 ### `delivery_ready_but_missing_primary`
 
 Meaning:
@@ -707,6 +729,29 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 - использовать `request-changes` для доработки worker-ом или
   `mark-delivered --primary-file ...` только после проверки корректного primary
   file.
+
+### `default_deliverable_format_mismatch`
+
+Значение:
+
+- пользователь не запросил конкретный формат, поэтому finalization вывела более
+  удобный пользовательский формат, чем артефакт, который подготовил worker;
+  например длинный отчёт для chat/thread доставки получил желаемый
+  `pdf_report`, а worker подготовил только Markdown.
+
+Проверки:
+
+- `finalization.deliverable_decision.selected_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.last_validation_findings`.
+
+Безопасное действие:
+
+- попросить worker-а подготовить желаемый пользовательский артефакт или явно
+  запросить Markdown, если именно Markdown должен быть финальным форматом;
+- не помечать доставку готовой, пока `desired_kind` и `feasible_kind`
+  расходятся.
 
 ### `delivery_ready_but_missing_primary`
 

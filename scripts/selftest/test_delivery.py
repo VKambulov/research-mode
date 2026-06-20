@@ -626,6 +626,120 @@ def test_worker_final_rejects_pdf_kind_with_markdown_candidate(root: Path) -> No
     )
 
 
+def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(root: Path) -> None:
+    task_id = "inferred-pdf-chat-report"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a long narrative report for a Mattermost thread.",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "inferred_user_need": "Long narrative report delivered in a chat thread.",
+        "intended_recipient": "Mattermost thread",
+        "primary_deliverable_kind": "markdown_report",
+        "candidate_artifacts": [
+            {
+                "path": "final-report.md",
+                "kind": "markdown_report",
+                "note": "Markdown source prepared by the worker.",
+            }
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "finalize",
+        "long chat/thread report should not silently become Markdown-only review-ready",
+    )
+    reasons = finished.get("finalization_validation", {}).get("reasons") or []
+    assert_in(
+        "default_deliverable_format_mismatch",
+        reasons,
+        "default format decision mismatch should be explicit",
+    )
+    decision_finding = next(
+        (
+            item
+            for item in finished.get("finalization_validation", {}).get("findings") or []
+            if item.get("check") == "deliverable_format_decision"
+        ),
+        {},
+    )
+    assert_eq(
+        decision_finding.get("desired_kind"),
+        "pdf_report",
+        "long chat/thread report should infer PDF as desired user-facing format",
+    )
+    assert_eq(
+        decision_finding.get("feasible_kind"),
+        "markdown_report",
+        "Markdown remains the feasible worker output until a renderer is available",
+    )
+
+
+def test_worker_final_preserves_explicit_markdown_format(root: Path) -> None:
+    task_id = "explicit-markdown-chat-report"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a report in the requested format.",
+            "--deliverable",
+            "Markdown report for a Mattermost thread",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "inferred_user_need": "Markdown report delivered in a chat thread.",
+        "intended_recipient": "Mattermost thread",
+        "primary_deliverable_kind": "markdown_report",
+        "candidate_artifacts": [
+            {
+                "path": "final-report.md",
+                "kind": "markdown_report",
+                "note": "Explicitly requested Markdown report.",
+            }
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "explicit Markdown request should preserve Markdown as user-facing output",
+    )
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    decision = (state.get("finalization") or {}).get("deliverable_decision") or {}
+    assert_eq(
+        decision.get("source"),
+        "explicit",
+        "format decision should record explicit user format",
+    )
+    assert_eq(
+        decision.get("selected_kind"),
+        "markdown_report",
+        "explicit Markdown should remain the selected deliverable kind",
+    )
+
+
 def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     json_out(
         run(

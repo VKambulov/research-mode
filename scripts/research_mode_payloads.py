@@ -152,6 +152,7 @@ def finalization_defaults() -> dict[str, Any]:
         "inferred_user_need": None,
         "intended_recipient": None,
         "primary_deliverable_kind": None,
+        "deliverable_decision": None,
         "internal_artifacts": [],
         "candidate_artifacts": [],
         "blocking_defects": [],
@@ -292,6 +293,27 @@ def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
     for key in ("inferred_user_need", "intended_recipient", "primary_deliverable_kind"):
         text = str(value.get(key) or "").strip()
         result[key] = text or None
+    deliverable_decision = value.get("deliverable_decision")
+    if deliverable_decision not in (None, ""):
+        if not isinstance(deliverable_decision, dict):
+            raise ValidationError("finalization.deliverable_decision must be an object")
+        cleaned_decision: dict[str, Any] = {}
+        for key in (
+            "selected_kind",
+            "desired_kind",
+            "feasible_kind",
+            "reason",
+            "source",
+        ):
+            text = str(deliverable_decision.get(key) or "").strip()
+            if text:
+                cleaned_decision[key] = text
+        alternatives = deliverable_decision.get("alternatives_considered")
+        if alternatives is not None:
+            cleaned_decision["alternatives_considered"] = normalize_string_list(
+                alternatives
+            )
+        result["deliverable_decision"] = cleaned_decision or None
     for key in ("max_attempts", "attempt_count"):
         raw_number = value.get(key)
         if raw_number not in (None, ""):

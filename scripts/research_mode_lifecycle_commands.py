@@ -1078,6 +1078,7 @@ def _finish_iteration_impl(
                         "primary_deliverable_kind",
                         "internal_artifacts",
                         "candidate_artifacts",
+                        "deliverable_decision",
                         "blocking_defects",
                         "nonblocking_defects",
                         "revisions",
@@ -1085,6 +1086,10 @@ def _finish_iteration_impl(
                     ):
                         if key in payload_finalization:
                             finalization_state[key] = payload_finalization[key]
+                    if finalization_validation.get("deliverable_decision"):
+                        finalization_state["deliverable_decision"] = (
+                            finalization_validation["deliverable_decision"]
+                        )
                     finalization_state["last_validation_findings"] = (
                         finalization_validation.get("findings") or []
                     )

@@ -55,6 +55,74 @@ EXPECTED_FORMATS_BY_PRIMARY_KIND = {
     "package": {"package"},
 }
 
+FORMAT_ALIASES = {
+    "markdown_report": (
+        "markdown",
+        "md",
+        "markdown report",
+        "md report",
+        "маркдаун",
+        "markdown-отчет",
+        "markdown-отчёт",
+        "md-отчет",
+        "md-отчёт",
+    ),
+    "pdf_report": (
+        "pdf",
+        "pdf report",
+        "pdf-отчет",
+        "pdf-отчёт",
+        "пдф",
+    ),
+    "docx_report": (
+        "docx",
+        "word",
+        "docx report",
+        "word document",
+        "документ word",
+        "ворд",
+    ),
+    "xlsx": (
+        "xlsx",
+        "spreadsheet",
+        "excel",
+        "workbook",
+        "таблица",
+        "таблицу",
+        "табличный",
+        "эксель",
+    ),
+    "csv": (
+        "csv",
+        "csv export",
+    ),
+    "html_report": (
+        "html",
+        "interactive",
+        "web page",
+        "интерактив",
+        "веб-страница",
+    ),
+    "package": (
+        "package",
+        "zip",
+        "bundle",
+        "пакет",
+        "архив",
+    ),
+}
+
+PRIMARY_KIND_NORMALIZATION = {
+    "markdown": "markdown_report",
+    "md_report": "markdown_report",
+    "pdf": "pdf_report",
+    "docx": "docx_report",
+    "html": "html_report",
+    "spreadsheet": "xlsx",
+    "xlsx_report": "xlsx",
+    "csv_export": "csv",
+}
+
 
 def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
     return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
@@ -74,6 +142,184 @@ def _format_mismatch_reasons(
     if actual in expected:
         return []
     return ["primary_deliverable_format_mismatch"]
+
+
+def _normalize_deliverable_kind(kind: str | None) -> str | None:
+    cleaned = str(kind or "").strip().lower()
+    if not cleaned:
+        return None
+    return PRIMARY_KIND_NORMALIZATION.get(cleaned, cleaned)
+
+
+def _explicit_user_format_kind(deliverable_desc: str) -> str | None:
+    text = f" {str(deliverable_desc or '').lower()} "
+    for kind, aliases in FORMAT_ALIASES.items():
+        if any(f" {alias} " in text or alias in text for alias in aliases):
+            return kind
+    return None
+
+
+def _artifact_format_kind(artifact_check: dict[str, Any] | None) -> str | None:
+    for artifact in (artifact_check or {}).get("artifacts") or []:
+        if artifact.get("reasons"):
+            continue
+        artifact_format = str(artifact.get("format") or "").strip().lower()
+        if artifact_format == "package":
+            return "package"
+        if artifact_format in {"markdown", "md"}:
+            return "markdown_report"
+        if artifact_format in {"pdf", "docx"}:
+            return f"{artifact_format}_report"
+        if artifact_format in {"html", "htm"}:
+            return "html_report"
+        if artifact_format in {"xlsx", "csv"}:
+            return artifact_format
+    return None
+
+
+def build_deliverable_format_decision(
+    *,
+    state: dict[str, Any],
+    finalization: dict[str, Any] | None,
+    report_markdown: str,
+    artifact_check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    trace = finalization or {}
+    working_memory = state.get("working_memory") or {}
+    deliverable_desc = str(working_memory.get("deliverable") or "")
+    explicit_kind = _explicit_user_format_kind(deliverable_desc)
+    primary_kind = _normalize_deliverable_kind(trace.get("primary_deliverable_kind"))
+    feasible_kind = primary_kind or _artifact_format_kind(artifact_check)
+    if not feasible_kind and str(report_markdown or "").strip():
+        feasible_kind = "markdown_report"
+
+    context_blob = "\n".join(
+        str(item or "")
+        for item in (
+            deliverable_desc,
+            trace.get("inferred_user_need"),
+            trace.get("intended_recipient"),
+            state.get("goal"),
+            state.get("title"),
+        )
+    ).lower()
+    source = "explicit" if explicit_kind else "inferred"
+    selected_kind = explicit_kind or feasible_kind
+    reason = (
+        "User explicitly requested this deliverable format."
+        if explicit_kind
+        else "Worker-provided primary deliverable kind is already suitable."
+    )
+    alternatives: list[str] = []
+
+    if not explicit_kind:
+        chat_thread = any(
+            marker in context_blob
+            for marker in (
+                "chat",
+                "thread",
+                "mattermost",
+                "telegram",
+                "topic",
+                "чат",
+                "тред",
+                "топик",
+                "канал",
+            )
+        )
+        narrative_report = any(
+            marker in context_blob
+            for marker in (
+                "long narrative",
+                "long report",
+                "narrative report",
+                "report",
+                "отчет",
+                "отчёт",
+                "исследование",
+            )
+        )
+        tabular = any(
+            marker in context_blob
+            for marker in (
+                "tabular",
+                "dataset",
+                "spreadsheet",
+                "xlsx",
+                "csv",
+                "таблица",
+                "таблич",
+                "датасет",
+            )
+        )
+        interactive = any(
+            marker in context_blob
+            for marker in ("interactive", "dashboard", "html", "интерактив", "дашборд")
+        )
+        bundle = any(
+            marker in context_blob
+            for marker in ("package", "bundle", "zip", "пакет", "архив")
+        )
+
+        if bundle:
+            selected_kind = "package"
+            reason = "Multi-file or bundled output is easier to review as a package."
+            alternatives = ["markdown_report", "zip"]
+        elif interactive:
+            selected_kind = "html_report"
+            reason = "Interactive or visual output is easier to review as HTML."
+            alternatives = ["pdf_report", "markdown_report"]
+        elif tabular and feasible_kind == "markdown_report":
+            selected_kind = "xlsx"
+            reason = "Tabular data is easier to inspect as a spreadsheet or CSV."
+            alternatives = ["csv", "markdown_report"]
+        elif chat_thread and narrative_report and feasible_kind == "markdown_report":
+            selected_kind = "pdf_report"
+            reason = "Long narrative report delivered in a chat/thread is easier to review as PDF."
+            alternatives = ["markdown_report", "docx_report"]
+
+    if selected_kind is None:
+        selected_kind = feasible_kind or "markdown_report"
+    if feasible_kind is None:
+        feasible_kind = selected_kind
+
+    return {
+        "selected_kind": selected_kind,
+        "desired_kind": selected_kind,
+        "feasible_kind": feasible_kind,
+        "reason": reason,
+        "source": source,
+        "alternatives_considered": alternatives,
+    }
+
+
+def check_deliverable_format_decision(
+    *,
+    state: dict[str, Any],
+    finalization: dict[str, Any] | None,
+    report_markdown: str,
+    artifact_check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    decision = build_deliverable_format_decision(
+        state=state,
+        finalization=finalization,
+        report_markdown=report_markdown,
+        artifact_check=artifact_check,
+    )
+    desired_kind = decision.get("desired_kind")
+    feasible_kind = decision.get("feasible_kind")
+    reasons: list[str] = []
+    if desired_kind != feasible_kind:
+        if decision.get("source") == "explicit":
+            reasons.append("explicit_deliverable_format_mismatch")
+        else:
+            reasons.append("default_deliverable_format_mismatch")
+    return {
+        "check": "deliverable_format_decision",
+        "passed": not reasons,
+        "reasons": reasons,
+        **decision,
+    }
 
 
 def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
@@ -114,6 +360,7 @@ def build_finalization_surface(state: dict[str, Any]) -> dict[str, Any]:
         "inferred_user_need": finalization.get("inferred_user_need"),
         "intended_recipient": finalization.get("intended_recipient"),
         "primary_deliverable_kind": finalization.get("primary_deliverable_kind"),
+        "deliverable_decision": finalization.get("deliverable_decision"),
         "internal_artifacts": internal_artifacts,
         "candidate_artifacts": candidate_artifacts,
         "blocking_defects": blocking_defects,
