@@ -483,15 +483,38 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
     lines.append("")
 
     delivery = state.get("delivery") or {}
-    if delivery.get("primary_file") or delivery.get("ready"):
+    consistency = compute_consistency_warnings(state)
+    delivery_warnings = [
+        warning
+        for warning in consistency.get("warnings") or []
+        if str(warning.get("code") or "")
+        in {
+            "missing_reviewable_artifact",
+            "delivery_ready_but_missing_primary",
+            "delivery_artifact_handoff_failed",
+        }
+    ]
+    if (
+        delivery.get("primary_file")
+        or delivery.get("review_ready")
+        or delivery.get("ready")
+        or delivery_warnings
+    ):
         lines.extend(
             [
                 "## Delivery",
                 "",
+                f"- Review ready: {'yes' if delivery.get('review_ready') else 'no'}",
                 f"- Ready: {'yes' if delivery.get('ready') else 'no'}",
                 f"- Primary file: {delivery.get('primary_file') or '-'}",
             ]
         )
+        if delivery_warnings:
+            lines.append("- Handoff warnings:")
+            for warning in delivery_warnings:
+                code = warning.get("code") or "unknown"
+                message = warning.get("message") or "-"
+                lines.append(f"  - `{code}`: {message}")
         attachments = delivery.get("attachments") or []
         if attachments:
             lines.append("- Attachments:")

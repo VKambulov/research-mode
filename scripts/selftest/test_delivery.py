@@ -15,6 +15,8 @@ from .helpers import (
     json_out,
     run,
 )
+from research_mode_reporting import refresh_task_playbook
+from research_mode_task import ResearchTask
 
 
 _HUMAN_READY_FINALIZATION = {
@@ -583,6 +585,47 @@ def test_worker_final_inspects_existing_markdown_candidate_artifact(root: Path) 
     )
 
 
+def test_worker_final_rejects_pdf_kind_with_markdown_candidate(root: Path) -> None:
+    task_id = "pdf-kind-markdown-candidate"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "PDF deliverable should not silently hand off Markdown.",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "final-report.md",
+                "kind": "markdown_report",
+                "note": "Markdown source, not the requested PDF.",
+            }
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "finalize",
+        "PDF finalization should not reach review with only Markdown candidate",
+    )
+    reasons = finished.get("finalization_validation", {}).get("reasons") or []
+    assert_in(
+        "primary_deliverable_format_mismatch",
+        reasons,
+        "format mismatch should be explicit",
+    )
+
+
 def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     json_out(
         run(
@@ -638,6 +681,113 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
         xlsx_artifact.get("sheet_names"),
         ["Сводка"],
         "XLSX inspection should expose sheet names",
+    )
+
+
+def test_delivery_ready_missing_primary_file_sets_operator_attention(root: Path) -> None:
+    task_id = "delivery-ready-missing-primary"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Delivery ready state should surface missing primary file.",
+            "--skip-preflight",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["delivery"] = {
+        "ready": True,
+        "review_ready": True,
+        "primary_file": "reports/missing.pdf",
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(run("summary", "--root", str(root), "--id", task_id, "--format", "json"))
+    attention = summary.get("operator_attention") or {}
+    assert_eq(
+        attention.get("status"),
+        "manual_review_needed",
+        "missing delivery primary file should require operator attention",
+    )
+    assert_true(
+        any(
+            item.get("code") == "delivery_artifact_handoff_failed"
+            for item in attention.get("conditions") or []
+        ),
+        "operator attention should expose delivery_artifact_handoff_failed",
+    )
+
+
+def test_awaiting_review_candidate_without_primary_file_sets_handoff_attention(root: Path) -> None:
+    task_id = "review-candidate-no-primary"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Review-ready candidate should have a delivery primary file.",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    reports_dir = task_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "final.pdf").write_text("dummy pdf", encoding="utf-8")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["review"] = {"status": "pending", "review_gated": True}
+    state["finalization"] = {
+        **_HUMAN_READY_FINALIZATION,
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "reports/final.pdf",
+                "kind": "pdf_report",
+                "note": "Review-ready PDF candidate.",
+            }
+        ],
+    }
+    state["delivery"] = {
+        "review_ready": True,
+        "ready": False,
+        "primary_file": None,
+    }
+    state["artifacts"]["final_report_path"] = None
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(run("summary", "--root", str(root), "--id", task_id, "--format", "json"))
+    attention = summary.get("operator_attention") or {}
+    assert_true(
+        any(
+            item.get("code") == "delivery_artifact_handoff_failed"
+            for item in attention.get("conditions") or []
+        ),
+        "awaiting_review without delivery primary should surface handoff failure",
+    )
+
+    task = ResearchTask(task_dir)
+    refresh_task_playbook(task)
+    playbook = (task_dir / "task-playbook.md").read_text(encoding="utf-8")
+    assert_in(
+        "delivery_artifact_handoff_failed",
+        playbook,
+        "task playbook should show delivery handoff warning",
     )
 
 

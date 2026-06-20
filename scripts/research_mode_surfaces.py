@@ -48,6 +48,14 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not consider deliverable delivered until primary_file is confirmed",
     },
+    "delivery_artifact_handoff_failed": {
+        "checklist": [
+            "Check finalization.primary_deliverable_kind",
+            "Check finalization.candidate_artifacts",
+            "Set delivery.primary_file to the review-ready task-local artifact",
+        ],
+        "note": "Do not approve or deliver until the candidate artifact and delivery primary file agree",
+    },
     "active_lock_in_terminal_state": {
         "checklist": [
             "Check lock.run_id and its age",
@@ -56,6 +64,12 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not issue new blind manual override; first verify stale/recovery path",
     },
+}
+
+DELIVERY_HANDOFF_WARNING_CODES = {
+    "missing_reviewable_artifact",
+    "delivery_ready_but_missing_primary",
+    "delivery_artifact_handoff_failed",
 }
 
 
@@ -100,6 +114,22 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         )
         primary_file = delivery.get("primary_file")
         primary_exists = bool(primary_file) and Path(primary_file).exists()
+        finalization = state.get("finalization") or {}
+        candidate_artifacts = finalization.get("candidate_artifacts") or []
+        if delivery.get("review_ready") and candidate_artifacts and not primary_file:
+            warnings.append(
+                {
+                    "code": "delivery_artifact_handoff_failed",
+                    "message": "task is review-ready with candidate artifacts but no delivery.primary_file",
+                    "details": {
+                        "primary_deliverable_kind": finalization.get(
+                            "primary_deliverable_kind"
+                        ),
+                        "candidate_artifacts_count": len(candidate_artifacts),
+                        "primary_file": primary_file,
+                    },
+                }
+            )
         if not final_report_exists and not primary_exists:
             warnings.append(
                 {
@@ -142,6 +172,52 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         "warnings": warnings,
         "has_warnings": len(warnings) > 0,
         "operator_guidance": operator_guidance,
+    }
+
+
+def _build_consistency_attention(state: dict[str, Any]) -> dict[str, Any]:
+    consistency = compute_consistency_warnings(state)
+    conditions: list[dict[str, Any]] = []
+    recommended_actions: list[dict[str, Any]] = []
+
+    for warning in consistency.get("warnings") or []:
+        code = str(warning.get("code") or "")
+        if code not in DELIVERY_HANDOFF_WARNING_CODES:
+            continue
+        conditions.append(
+            {
+                "code": "delivery_artifact_handoff_failed",
+                "severity": "warning",
+                "message": warning.get("message")
+                or "Delivery artifact handoff needs operator review.",
+                "details": {
+                    "warning_code": code,
+                    **(warning.get("details") or {}),
+                },
+            }
+        )
+
+    seen_action_codes: set[str] = set()
+    for guidance in consistency.get("operator_guidance") or []:
+        code = str(guidance.get("warning_code") or "")
+        if code not in DELIVERY_HANDOFF_WARNING_CODES or code in seen_action_codes:
+            continue
+        seen_action_codes.add(code)
+        recommended_actions.append(
+            {
+                "kind": "manual_review",
+                "warning_code": "delivery_artifact_handoff_failed",
+                "note": guidance.get("note")
+                or "Inspect delivery.primary_file, candidate artifacts, and review state.",
+                "checklist": guidance.get("checklist") or [],
+            }
+        )
+
+    return {
+        "status": "manual_review_needed" if conditions else "ok",
+        "has_conditions": bool(conditions),
+        "conditions": conditions,
+        "recommended_actions": recommended_actions,
     }
 
 
@@ -306,7 +382,11 @@ def build_operator_attention(
         "conditions": conditions,
         "recommended_actions": recommended_actions,
     }
-    return merge_operator_attention(base_attention, build_reliability_attention(state))
+    merged_attention = merge_operator_attention(
+        base_attention,
+        _build_consistency_attention(state),
+    )
+    return merge_operator_attention(merged_attention, build_reliability_attention(state))
 
 
 def format_source_bullet(source: dict[str, Any]) -> str:

@@ -37,6 +37,43 @@ RAW_FINAL_ARTIFACT_SIGNALS = [
 
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
+EXPECTED_FORMATS_BY_PRIMARY_KIND = {
+    "markdown": {"markdown"},
+    "markdown_report": {"markdown"},
+    "md_report": {"markdown"},
+    "pdf": {"pdf"},
+    "pdf_report": {"pdf"},
+    "docx": {"docx"},
+    "docx_report": {"docx"},
+    "html": {"html", "htm"},
+    "html_report": {"html", "htm"},
+    "spreadsheet": {"xlsx"},
+    "xlsx": {"xlsx"},
+    "xlsx_report": {"xlsx"},
+    "csv": {"csv"},
+    "csv_export": {"csv"},
+    "package": {"package"},
+}
+
+
+def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
+    return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
+        str(primary_kind or "").strip().lower(),
+        set(),
+    )
+
+
+def _format_mismatch_reasons(
+    primary_kind: str,
+    actual_format: str | None,
+) -> list[str]:
+    expected = _expected_formats_for_primary_kind(primary_kind)
+    if not expected:
+        return []
+    actual = str(actual_format or "").strip().lower()
+    if actual in expected:
+        return []
+    return ["primary_deliverable_format_mismatch"]
 
 
 def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
@@ -218,10 +255,13 @@ def inspect_candidate_artifacts(
     primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
 
     if not candidate_artifacts:
+        reasons = [] if report_text else ["primary_deliverable_missing"]
+        if report_text:
+            reasons.extend(_format_mismatch_reasons(primary_kind, "markdown"))
         return {
             "check": "candidate_artifact_inspection",
-            "passed": bool(report_text),
-            "reasons": [] if report_text else ["primary_deliverable_missing"],
+            "passed": bool(report_text) and not reasons,
+            "reasons": reasons,
             "artifacts": [],
             "mode": "self_contained_report" if report_text else "missing",
         }
@@ -244,6 +284,14 @@ def inspect_candidate_artifacts(
         }
         if artifact_path in final_report_names and report_text:
             markdown_result = _inspect_markdown_text(report_text)
+            markdown_result["reasons"] = list(
+                dict.fromkeys(
+                    [
+                        *(markdown_result.get("reasons") or []),
+                        *_format_mismatch_reasons(primary_kind, "markdown"),
+                    ]
+                )
+            )
             checked.append(
                 {
                     "path": artifact_path,
@@ -297,6 +345,14 @@ def inspect_candidate_artifacts(
             continue
 
         file_result = _inspect_existing_file(resolved)
+        file_result["reasons"] = list(
+            dict.fromkeys(
+                [
+                    *(file_result.get("reasons") or []),
+                    *_format_mismatch_reasons(primary_kind, file_result.get("format")),
+                ]
+            )
+        )
         checked.append(
             {
                 "path": artifact_path,

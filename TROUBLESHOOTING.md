@@ -236,6 +236,30 @@ Safe action:
 - request changes or reopen the task so a valid candidate can be produced;
 - restore the artifact only if there is a known safe source of truth.
 
+### `delivery_artifact_handoff_failed`
+
+Meaning:
+
+- finalization declares candidate artifacts, but the delivery manifest does not
+  point at the review-ready primary file; or
+- the declared primary deliverable kind and the actual candidate format disagree
+  (for example `pdf_report` with only Markdown).
+
+Checks:
+
+- `finalization.primary_deliverable_kind`;
+- `finalization.candidate_artifacts`;
+- `delivery.review_ready`;
+- `delivery.primary_file`;
+- `summary --format json` operator attention.
+
+Safe action:
+
+- do not approve or mark delivered yet;
+- produce or attach the declared user-facing artifact inside the task directory;
+- use `request-changes` for worker rework, or `mark-delivered --primary-file ...`
+  only after the correct primary file exists and has been reviewed.
+
 ### `delivery_ready_but_missing_primary`
 
 Meaning:
@@ -635,6 +659,32 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 - запросить доработки или открыть задачу снова, чтобы появился валидный
   кандидат;
 - восстанавливать артефакт только при наличии понятного источника истины.
+
+### `delivery_artifact_handoff_failed`
+
+Значение:
+
+- finalization заявляет кандидатные артефакты, но delivery manifest не указывает
+  на review-ready primary file; или
+- заявленный тип основного результата не совпадает с фактическим форматом
+  кандидата, например `pdf_report` указывает только на Markdown.
+
+Проверки:
+
+- `finalization.primary_deliverable_kind`;
+- `finalization.candidate_artifacts`;
+- `delivery.review_ready`;
+- `delivery.primary_file`;
+- operator attention в `summary --format json`.
+
+Безопасное действие:
+
+- пока не утверждать и не помечать как доставленное;
+- создать или приложить заявленный пользовательский артефакт внутри директории
+  задачи;
+- использовать `request-changes` для доработки worker-ом или
+  `mark-delivered --primary-file ...` только после проверки корректного primary
+  file.
 
 ### `delivery_ready_but_missing_primary`
 

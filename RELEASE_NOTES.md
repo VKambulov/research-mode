@@ -18,6 +18,9 @@ License: Apache License, Version 2.0.
 - Comparative deliverable validation now recognizes structured ranked tables,
   decision tables, and risk matrices instead of relying only on literal
   comparison keywords.
+- Finalization now rejects obvious primary-deliverable format mismatches, such
+  as `pdf_report` pointing at Markdown, and delivery handoff mismatches surface
+  as `delivery_artifact_handoff_failed` operator attention.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -232,6 +235,9 @@ Before publishing, confirm `LICENSE` is included in the public package.
 - Проверка сравнительных результатов теперь распознаёт структурные
   ранжированные таблицы, таблицы решений и матрицы рисков, а не зависит только
   от буквальных слов про сравнение.
+- Финальная проверка теперь отклоняет очевидное несоответствие формата, например
+  `pdf_report`, указывающий на Markdown, а проблемы передачи артефакта в
+  delivery выводятся как `delivery_artifact_handoff_failed`.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 
