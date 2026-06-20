@@ -252,6 +252,8 @@ Meaning:
 Checks:
 
 - `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
 - `finalization.candidate_artifacts`;
 - `delivery.review_ready`;
 - `delivery.primary_file`;
@@ -724,6 +726,8 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 Проверки:
 
 - `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
 - `finalization.candidate_artifacts`;
 - `delivery.review_ready`;
 - `delivery.primary_file`;

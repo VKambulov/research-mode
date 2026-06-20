@@ -161,8 +161,6 @@ def _explicit_user_format_kind(deliverable_desc: str) -> str | None:
 
 def _artifact_format_kind(artifact_check: dict[str, Any] | None) -> str | None:
     for artifact in (artifact_check or {}).get("artifacts") or []:
-        if artifact.get("reasons"):
-            continue
         artifact_format = str(artifact.get("format") or "").strip().lower()
         if artifact_format == "package":
             return "package"
@@ -189,7 +187,7 @@ def build_deliverable_format_decision(
     deliverable_desc = str(working_memory.get("deliverable") or "")
     explicit_kind = _explicit_user_format_kind(deliverable_desc)
     primary_kind = _normalize_deliverable_kind(trace.get("primary_deliverable_kind"))
-    feasible_kind = primary_kind or _artifact_format_kind(artifact_check)
+    feasible_kind = _artifact_format_kind(artifact_check)
     if not feasible_kind and str(report_markdown or "").strip():
         feasible_kind = "markdown_report"
 
@@ -203,13 +201,14 @@ def build_deliverable_format_decision(
             state.get("title"),
         )
     ).lower()
-    source = "explicit" if explicit_kind else "inferred"
-    selected_kind = explicit_kind or feasible_kind
-    reason = (
-        "User explicitly requested this deliverable format."
-        if explicit_kind
-        else "Worker-provided primary deliverable kind is already suitable."
-    )
+    source = "explicit" if explicit_kind else "declared" if primary_kind else "inferred"
+    selected_kind = explicit_kind or primary_kind or feasible_kind
+    if explicit_kind:
+        reason = "User explicitly requested this deliverable format."
+    elif primary_kind:
+        reason = "Worker declared this primary deliverable kind."
+    else:
+        reason = "Worker-provided artifact format is already suitable."
     alternatives: list[str] = []
 
     if not explicit_kind:
@@ -262,18 +261,22 @@ def build_deliverable_format_decision(
         )
 
         if bundle:
+            source = "inferred"
             selected_kind = "package"
             reason = "Multi-file or bundled output is easier to review as a package."
             alternatives = ["markdown_report", "zip"]
         elif interactive:
+            source = "inferred"
             selected_kind = "html_report"
             reason = "Interactive or visual output is easier to review as HTML."
             alternatives = ["pdf_report", "markdown_report"]
         elif tabular and feasible_kind == "markdown_report":
+            source = "inferred"
             selected_kind = "xlsx"
             reason = "Tabular data is easier to inspect as a spreadsheet or CSV."
             alternatives = ["csv", "markdown_report"]
         elif chat_thread and narrative_report and feasible_kind == "markdown_report":
+            source = "inferred"
             selected_kind = "pdf_report"
             reason = "Long narrative report delivered in a chat/thread is easier to review as PDF."
             alternatives = ["markdown_report", "docx_report"]
@@ -312,6 +315,8 @@ def check_deliverable_format_decision(
     if desired_kind != feasible_kind:
         if decision.get("source") == "explicit":
             reasons.append("explicit_deliverable_format_mismatch")
+        elif decision.get("source") == "declared":
+            reasons.append("primary_deliverable_format_mismatch")
         else:
             reasons.append("default_deliverable_format_mismatch")
     return {

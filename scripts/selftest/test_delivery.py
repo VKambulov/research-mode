@@ -624,6 +624,38 @@ def test_worker_final_rejects_pdf_kind_with_markdown_candidate(root: Path) -> No
         reasons,
         "format mismatch should be explicit",
     )
+    decision_finding = next(
+        (
+            item
+            for item in finished.get("finalization_validation", {}).get("findings") or []
+            if item.get("check") == "deliverable_format_decision"
+        ),
+        {},
+    )
+    assert_true(
+        not decision_finding.get("passed"),
+        "format decision should not pass when declared PDF only has Markdown",
+    )
+    assert_eq(
+        decision_finding.get("desired_kind"),
+        "pdf_report",
+        "declared PDF should remain the desired deliverable kind",
+    )
+    assert_eq(
+        decision_finding.get("feasible_kind"),
+        "markdown_report",
+        "actual Markdown candidate should be the feasible worker output",
+    )
+    assert_eq(
+        decision_finding.get("source"),
+        "declared",
+        "declared primary kind should be distinguished from inferred defaults",
+    )
+    assert_in(
+        "primary_deliverable_format_mismatch",
+        decision_finding.get("reasons") or [],
+        "format decision should carry the declared/actual mismatch reason",
+    )
 
 
 def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(root: Path) -> None:
