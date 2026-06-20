@@ -460,6 +460,116 @@ def compute_low_yield(metrics: dict[str, int], payload: dict[str, Any]) -> bool:
     )
 
 
+def _markdown_table_cells(line: str) -> list[str]:
+    return [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = _markdown_table_cells(line)
+    return bool(cells) and all(re.match(r"^:?-{3,}:?$", cell or "") for cell in cells)
+
+
+def _header_has_any(headers: list[str], needles: tuple[str, ...]) -> bool:
+    return any(any(needle in header for needle in needles) for header in headers)
+
+
+def detect_comparative_structure(report_text: str) -> dict[str, Any]:
+    lines = [line.rstrip() for line in str(report_text or "").splitlines()]
+    signals: list[str] = []
+    matched_tables: list[dict[str, Any]] = []
+
+    rank_headers = ("rank", "priority", "место", "рейтинг", "приоритет")
+    candidate_headers = (
+        "candidate",
+        "option",
+        "alternative",
+        "variant",
+        "кандидат",
+        "вариант",
+        "альтернатив",
+    )
+    decision_headers = (
+        "decision",
+        "choice",
+        "choose",
+        "recommend",
+        "выбор",
+        "решение",
+        "рекоменд",
+    )
+    risk_headers = (
+        "risk",
+        "probability",
+        "impact",
+        "mitigation",
+        "риск",
+        "вероят",
+        "влияние",
+        "смягч",
+    )
+    criteria_headers = (
+        "criteria",
+        "criterion",
+        "score",
+        "cost",
+        "price",
+        "reliability",
+        "критер",
+        "оцен",
+        "стоим",
+        "цена",
+        "надёж",
+        "надеж",
+    )
+
+    table_count = 0
+    for index, line in enumerate(lines[:-1]):
+        if "|" not in line or not _is_markdown_table_separator(lines[index + 1]):
+            continue
+
+        headers = _markdown_table_cells(line)
+        data_rows = 0
+        for data_line in lines[index + 2 :]:
+            if "|" not in data_line or _is_markdown_table_separator(data_line):
+                break
+            cells = _markdown_table_cells(data_line)
+            if any(cell for cell in cells):
+                data_rows += 1
+
+        table_count += 1
+        has_rank = _header_has_any(headers, rank_headers)
+        has_candidate = _header_has_any(headers, candidate_headers)
+        has_decision = _header_has_any(headers, decision_headers)
+        has_risk = _header_has_any(headers, risk_headers)
+        has_criteria = _header_has_any(headers, criteria_headers)
+
+        table_signals: list[str] = []
+        if data_rows >= 2 and has_candidate:
+            if has_rank and (has_decision or has_risk or has_criteria):
+                table_signals.append("ranked_table")
+            if has_risk:
+                table_signals.append("risk_matrix")
+            if sum([has_decision, has_risk, has_criteria, has_rank]) >= 2:
+                table_signals.append("decision_table")
+
+        if table_signals:
+            signals.extend(signal for signal in table_signals if signal not in signals)
+            matched_tables.append(
+                {
+                    "headers": headers,
+                    "data_rows": data_rows,
+                    "signals": table_signals,
+                }
+            )
+
+    return {
+        "passed": bool(signals),
+        "signals": signals,
+        "table_count": table_count,
+        "matched_tables": matched_tables,
+    }
+
+
 def inspect_deliverable_requirements(
     deliverable: str,
     report_markdown: str,
@@ -537,12 +647,18 @@ def inspect_deliverable_requirements(
 
     if any(token in lowered for token in ("compar", "сравн", "сопостав")):
         evidence_units = max(int(total_sources or 0), int(total_findings or 0))
-        passed = evidence_units >= 2 and comparison_signal_count >= 1
+        comparative_structure = detect_comparative_structure(report)
+        passed = evidence_units >= 2 and (
+            comparison_signal_count >= 1 or bool(comparative_structure.get("passed"))
+        )
         checks.append(
             {
                 "kind": "comparative",
                 "passed": passed,
                 "comparison_signal_count": comparison_signal_count,
+                "structure_signals": comparative_structure.get("signals") or [],
+                "structure_table_count": comparative_structure.get("table_count") or 0,
+                "matched_structures": comparative_structure.get("matched_tables") or [],
                 "evidence_units": evidence_units,
                 "minimum_evidence_units": 2,
             }

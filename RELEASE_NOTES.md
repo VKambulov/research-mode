@@ -15,6 +15,9 @@ License: Apache License, Version 2.0.
   events and surface `completion_validation_retry_loop` as manual operator
   attention after the second repeat; a successful completion validation clears
   the active retry warning.
+- Comparative deliverable validation now recognizes structured ranked tables,
+  decision tables, and risk matrices instead of relying only on literal
+  comparison keywords.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -226,6 +229,9 @@ Before publishing, confirm `LICENSE` is included in the public package.
   reliability events и после второго повтора показывают
   `completion_validation_retry_loop` как ручное внимание оператора; успешная
   completion validation очищает активное предупреждение.
+- Проверка сравнительных результатов теперь распознаёт структурные
+  ранжированные таблицы, таблицы решений и матрицы рисков, а не зависит только
+  от буквальных слов про сравнение.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 

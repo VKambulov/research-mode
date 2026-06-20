@@ -264,6 +264,39 @@ def test_deliverable_comparative_validation(root: Path) -> None:
     assert_true(any(check.get("kind") == "comparative" and check.get("passed") for check in compare_checks), "comparative deliverable validation should be inspectable in summary json")
 
 
+def test_deliverable_comparative_ranked_table_without_keyword(root: Path) -> None:
+    dt_root = root / "dt-root"
+    dt_root.mkdir(parents=True, exist_ok=True)
+    run("create", "--root", str(dt_root), "--id", "dt-compare-table", "--goal", "Comparative deliverable table validation", "--deliverable", "comparative memo")
+    lease = json_out(run("begin", "--root", str(dt_root), "--id", "dt-compare-table"))
+    lease = route_to_finalize(dt_root, "dt-compare-table", lease)
+    result = Path(lease["paths"]["result_file"])
+    result.parent.mkdir(parents=True, exist_ok=True)
+    result.write_text(
+        json.dumps({
+            "summary": "Prepared a ranked decision table.",
+            "next_angle": "done",
+            "meaningful_progress": True,
+            "phase": "finalize",
+            "open_questions": [],
+            "sources": [{"title": "Source A", "url": "https://example.com/a"}, {"title": "Source B", "url": "https://example.com/b"}],
+            "findings": [{"kind": "fact", "text": "A has supply risk."}, {"kind": "fact", "text": "B has price risk."}],
+            "notify_recommendation": "final",
+            "should_complete": True,
+            "final_report_markdown": "# Recommendation\n\n| Rank | Candidate | Decision | Main risk |\n| --- | --- | --- | --- |\n| 1 | A | choose | supply |\n| 2 | B | backup | price |\n\n## Rationale\n\nThe table ranks the viable candidates, states the decision for each candidate, and records the main risk that changes the recommendation.",
+            "finalization": human_ready_finalization(),
+        }, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    finished = json_out(run("finish", "--root", str(dt_root), "--id", "dt-compare-table", "--run-id", lease["run_id"], "--result-file", str(result)))
+    assert_eq(finished["status"], "awaiting_review", "ranked table should satisfy comparative deliverable without keyword dependency")
+    compare_summary = json_out(run("summary", "--root", str(dt_root), "--id", "dt-compare-table", "--format", "json"))
+    compare_checks = ((compare_summary["completion"] or {}).get("deliverable_validation") or {}).get("checks") or []
+    comparative_check = next(check for check in compare_checks if check.get("kind") == "comparative")
+    assert_true(comparative_check.get("passed"), "comparative table should pass structural validation")
+    assert_in("ranked_table", comparative_check.get("structure_signals") or [], "summary should expose structural signal")
+
+
 def test_mutation_ambiguity(root: Path) -> None:
     ma_root = root / "ma-root"
     ma_root.mkdir(parents=True, exist_ok=True)

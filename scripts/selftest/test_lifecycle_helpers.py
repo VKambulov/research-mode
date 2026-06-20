@@ -17,7 +17,9 @@ from research_mode_lifecycle_helpers import (
     compute_confidence_score,
     compute_low_yield,
     compute_source_quality_score,
+    detect_comparative_structure,
     enrich_findings_with_provenance,
+    inspect_deliverable_requirements,
     render_confidence_badge,
     should_notify,
 )
@@ -48,6 +50,62 @@ def test_adequacy_contract_carries_goal_constraints_and_open_questions(root: Pat
     assert_in("Use primary sources where possible.", contract["constraints"], "contract should carry constraints")
     assert_in("short comparative memo", " ".join(guidance), "guidance should mention requested deliverable")
     assert_in("Russian", " ".join(guidance), "guidance should include explicit user instructions")
+
+
+def test_detect_comparative_structure_accepts_ranked_table(root: Path) -> None:
+    report = """# Recommendation
+
+| Rank | Candidate | Decision | Main risk |
+| --- | --- | --- | --- |
+| 1 | A | choose | supply |
+| 2 | B | backup | price |
+"""
+
+    result = detect_comparative_structure(report)
+
+    assert_eq(result["passed"], True, "ranked candidate table should be comparative")
+    assert_in("ranked_table", result["signals"], "ranked table signal should be explicit")
+
+
+def test_detect_comparative_structure_accepts_risk_matrix(root: Path) -> None:
+    report = """# Decision Matrix
+
+| Alternative | Probability | Impact | Mitigation |
+| --- | --- | --- | --- |
+| A | medium | high | supplier reserve |
+| B | low | medium | price cap |
+"""
+
+    result = detect_comparative_structure(report)
+
+    assert_eq(result["passed"], True, "risk matrix with alternatives should be comparative")
+    assert_in("risk_matrix", result["signals"], "risk matrix signal should be explicit")
+
+
+def test_comparative_deliverable_rejects_plain_bullets_without_criteria(root: Path) -> None:
+    report = """# Options
+
+- A is cheap.
+- B is reliable.
+"""
+
+    validation = inspect_deliverable_requirements(
+        "comparative memo",
+        report,
+        payload={},
+        total_sources=2,
+        total_findings=2,
+    )
+    comparative_check = next(
+        check for check in validation["checks"] if check["kind"] == "comparative"
+    )
+
+    assert_eq(comparative_check["passed"], False, "plain bullets should not satisfy comparative shape")
+    assert_in(
+        "deliverable_comparative_shape_weak",
+        validation["reasons"],
+        "plain bullets should produce actionable comparative rejection",
+    )
 
 def test_confidence_no_sources(root: Path) -> None:
     finding = {"kind": "fact", "text": "Claim without refs"}
