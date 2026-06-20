@@ -1225,7 +1225,7 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
     with manager.editor() as state:
         delivery = state.setdefault("delivery", {})
         if explicit_primary_file is not None:
-            delivery["primary_file"] = str(explicit_primary_file).strip()
+            delivery["primary_file"] = validated_primary
         if getattr(args, "summary_text", None) is not None:
             delivery["summary_text"] = str(args.summary_text).strip()
         if getattr(args, "channel_strategy", None) is not None:

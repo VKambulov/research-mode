@@ -1374,6 +1374,11 @@ def test_mark_delivered_command(root: Path) -> None:
         "primary_file should be set (resolved to absolute path)",
     )
     assert_eq(
+        result.get("primary_file"),
+        str(reports_dir / "final.pdf"),
+        "relative primary_file should be stored as a task-local absolute path",
+    )
+    assert_eq(
         result.get("summary_text"),
         "Analysis complete. PDF attached.",
         "summary_text should be set",
@@ -1427,6 +1432,29 @@ def test_mark_delivered_succeeds_with_valid_relative_primary_file(root: Path) ->
     assert_true(
         result.get("primary_file"),
         "primary_file should be set with resolved absolute path",
+    )
+    assert_eq(
+        result.get("primary_file"),
+        str(final_pdf),
+        "relative primary_file should be persisted as an absolute path",
+    )
+    health = json_out(
+        run(
+            "health",
+            "--root",
+            str(root),
+            "--id",
+            "delivery-relative-success",
+            "--format",
+            "json",
+        )
+    )
+    assert_true(
+        not any(
+            item.get("code") == "delivery_ready_but_missing_primary"
+            for item in health.get("findings") or []
+        ),
+        "health should resolve stored primary_file after mark-delivered",
     )
 
 
