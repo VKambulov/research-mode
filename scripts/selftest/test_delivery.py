@@ -1010,6 +1010,51 @@ def test_delivery_ready_missing_primary_file_sets_operator_attention(root: Path)
     )
 
 
+def test_delivery_ready_relative_primary_file_resolves_under_task(root: Path) -> None:
+    task_id = "delivery-ready-relative-primary"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Legacy relative primary file should still be valid.",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    reports_dir = task_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "final.pdf").write_bytes(b"%PDF-1.7\n% test pdf\n")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["review"] = {"status": "pending", "review_gated": True}
+    state["delivery"] = {
+        "review_ready": True,
+        "ready": True,
+        "primary_file": "reports/final.pdf",
+    }
+    state["artifacts"]["final_report_path"] = None
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    health = json_out(run("health", "--root", str(root), "--id", task_id, "--format", "json"))
+    codes = [item.get("code") for item in health.get("findings") or []]
+    assert_true(
+        "missing_reviewable_artifact" not in codes,
+        "relative primary_file should satisfy awaiting_review artifact check",
+    )
+    assert_true(
+        "delivery_ready_but_missing_primary" not in codes,
+        "relative primary_file should satisfy delivery.ready artifact check",
+    )
+
+
 def test_awaiting_review_candidate_without_primary_file_sets_handoff_attention(root: Path) -> None:
     task_id = "review-candidate-no-primary"
     json_out(

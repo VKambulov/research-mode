@@ -98,6 +98,17 @@ def _path_format(path_value: str | None) -> str | None:
         return "markdown"
     return suffix or None
 
+
+def _state_file_exists(state: dict[str, Any], path_value: str | None) -> bool:
+    if not path_value:
+        return False
+    path = Path(str(path_value))
+    if path.is_absolute():
+        return path.exists()
+    task_dir = (state.get("artifacts") or {}).get("task_dir")
+    return bool(task_dir) and (Path(str(task_dir)) / path).exists()
+
+
 DELIVERY_HANDOFF_WARNING_CODES = {
     "missing_reviewable_artifact",
     "delivery_ready_but_missing_primary",
@@ -145,11 +156,9 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     if status == "awaiting_review":
-        final_report_exists = (
-            bool(final_report_path) and Path(final_report_path).exists()
-        )
+        final_report_exists = _state_file_exists(state, final_report_path)
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_exists = _state_file_exists(state, primary_file)
         finalization = state.get("finalization") or {}
         candidate_artifacts = finalization.get("candidate_artifacts") or []
         if delivery.get("review_ready") and candidate_artifacts and not primary_file:
@@ -205,7 +214,7 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
 
     if delivery.get("ready"):
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_exists = _state_file_exists(state, primary_file)
         if not primary_exists:
             warnings.append(
                 {
