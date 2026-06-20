@@ -280,6 +280,28 @@ python3 scripts/research_mode.py mark-delivered \
 Only run this after confirming that `final-report.md` exists inside the task
 directory and is the intended deliverable.
 
+### `delivery_channel_addressing_failed`
+
+Meaning:
+
+- the platform delivery adapter failed because the provider target shape was not
+  accepted. For example, the provider may require a channel/thread/topic/root
+  target shape different from the one used by the adapter.
+
+Checks:
+
+- failed `delivery_intents[]` entry;
+- `error_code`;
+- sanitized `provider_target_shape`;
+- actual adapter call outside Research Mode.
+
+Safe action:
+
+- fix the platform adapter target shape;
+- retry delivery through the adapter;
+- record the retry with `record-notification --status sent` after success, or
+  another `--status failed --error-code ...` if it still fails.
+
 ### Command Fails Because Task Id Is Ambiguous
 
 Meaning:
@@ -705,6 +727,28 @@ python3 scripts/research_mode.py mark-delivered \
 
 Команда допустима только после проверки, что `final-report.md` существует
 внутри задачи и действительно является нужным результатом.
+
+### `delivery_channel_addressing_failed`
+
+Значение:
+
+- adapter доставки не смог отправить сообщение или файл, потому что provider не
+  принял форму цели. Например, каналу может требоваться другая связка
+  channel/thread/topic/root target.
+
+Проверки:
+
+- failed-запись в `delivery_intents[]`;
+- `error_code`;
+- безопасная `provider_target_shape`;
+- фактический вызов adapter-а вне Research Mode.
+
+Безопасное действие:
+
+- исправить форму цели в adapter-е канала;
+- повторить доставку через adapter;
+- после успеха записать `record-notification --status sent`, а при новом сбое -
+  ещё один `--status failed --error-code ...`.
 
 ### Команда не может выбрать задачу
 

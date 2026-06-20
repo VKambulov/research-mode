@@ -532,6 +532,7 @@ def render_worker_prompt_text(
            - Include delivery_intent.primary_file / attachments when the messaging surface supports safe file delivery.
            - After a successful send, run: python3 {script} record-notification --root {root_arg} --id {task_id} --delivery-intent-id <delivery_intent.id> --status sent
            - If sending fails, run: python3 {script} record-notification --root {root_arg} --id {task_id} --delivery-intent-id <delivery_intent.id> --status failed --error "<short reason>"
+             Add --error-code delivery_channel_addressing_failed when the provider rejected the target shape (for example wrong channel/thread/topic/root target).
            - If delivery_intent.status="blocked", do not pretend it was sent; leave the blocked state visible and reply exactly NO_REPLY.
            - If there is no pending delivery_intent, reply exactly NO_REPLY.
         8. On any error after leasing a run, call: python3 {script} fail --root {root_arg} --id {task_id} --run-id <run_id_from_begin> --error "..." [--requires-user-input]

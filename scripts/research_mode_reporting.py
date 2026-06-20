@@ -492,6 +492,8 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             "missing_reviewable_artifact",
             "delivery_ready_but_missing_primary",
             "delivery_artifact_handoff_failed",
+            "delivery_channel_addressing_failed",
+            "delivery_notification_failed",
         }
     ]
     if (

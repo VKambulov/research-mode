@@ -285,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     record_notification.add_argument("--path")
     record_notification.add_argument("--delivery-intent-id", required=True)
     record_notification.add_argument("--status", required=True, choices=["sent", "failed"])
+    record_notification.add_argument("--error-code", default=None)
     record_notification.add_argument("--error", default=None)
     record_notification.set_defaults(func=record_notification_command)
 

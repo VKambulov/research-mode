@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+DELIVERY_CHANNEL_ADDRESSING_ERROR = "delivery_channel_addressing_failed"
+DELIVERY_NOTIFICATION_ERROR = "delivery_notification_failed"
+
 
 CHANNEL_LIMITS = {
     "telegram": {
@@ -78,6 +81,36 @@ DELIVERY_PRESETS = {
         ],
     },
 }
+
+
+def classify_delivery_error(error: str | None) -> str | None:
+    text = str(error or "").strip().lower()
+    if not text:
+        return None
+    addressing_markers = (
+        "invalid rootid",
+        "invalid root id",
+        "rootid",
+        "root id",
+        "thread",
+        "topic",
+        "channel",
+        "target",
+        "address",
+    )
+    if any(marker in text for marker in addressing_markers):
+        return DELIVERY_CHANNEL_ADDRESSING_ERROR
+    return DELIVERY_NOTIFICATION_ERROR
+
+
+def notification_target_shape(target: dict[str, Any] | None) -> dict[str, Any]:
+    target = target or {}
+    return {
+        "channel": target.get("channel"),
+        "has_chat_id": bool(target.get("chat_id")),
+        "has_thread_id": bool(target.get("thread_id")),
+        "has_topic_id": bool(target.get("topic_id")),
+    }
 
 
 def get_channel_profile(channel: str) -> dict[str, Any]:

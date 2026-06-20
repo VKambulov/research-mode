@@ -11,6 +11,12 @@ from research_mode_reliability import (
     build_reliability_attention,
     merge_operator_attention,
 )
+from research_mode_surface_delivery import (
+    DELIVERY_CHANNEL_ADDRESSING_ERROR,
+    DELIVERY_NOTIFICATION_ERROR,
+    classify_delivery_error,
+    notification_target_shape,
+)
 from research_mode_task import ResearchTask
 from research_mode_utils import (
     ValidationError,
@@ -56,6 +62,22 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not approve or deliver until the candidate artifact and delivery primary file agree",
     },
+    "delivery_channel_addressing_failed": {
+        "checklist": [
+            "Check the delivery adapter target shape",
+            "Verify whether the provider expects a channel, thread, topic, or file root target",
+            "Retry only after the adapter target shape is corrected",
+        ],
+        "note": "The delivery adapter failed because the provider target shape was not accepted",
+    },
+    "delivery_notification_failed": {
+        "checklist": [
+            "Check the failed delivery intent error",
+            "Verify the provider adapter and target availability",
+            "Retry only after the error is understood",
+        ],
+        "note": "The delivery adapter reported a failed notification send",
+    },
     "active_lock_in_terminal_state": {
         "checklist": [
             "Check lock.run_id and its age",
@@ -70,6 +92,10 @@ DELIVERY_HANDOFF_WARNING_CODES = {
     "missing_reviewable_artifact",
     "delivery_ready_but_missing_primary",
     "delivery_artifact_handoff_failed",
+}
+DELIVERY_INTENT_WARNING_CODES = {
+    DELIVERY_CHANNEL_ADDRESSING_ERROR,
+    DELIVERY_NOTIFICATION_ERROR,
 }
 
 
@@ -156,6 +182,26 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+    for intent in state.get("delivery_intents") or []:
+        if not isinstance(intent, dict) or intent.get("status") != "failed":
+            continue
+        error_code = str(intent.get("error_code") or "").strip() or (
+            classify_delivery_error(intent.get("error")) or DELIVERY_NOTIFICATION_ERROR
+        )
+        if error_code not in DELIVERY_INTENT_WARNING_CODES:
+            error_code = DELIVERY_NOTIFICATION_ERROR
+        warnings.append(
+            {
+                "code": error_code,
+                "message": intent.get("error") or "delivery notification failed",
+                "details": {
+                    "delivery_intent_id": intent.get("id"),
+                    "provider_target_shape": intent.get("provider_target_shape")
+                    or notification_target_shape(intent.get("notification_target")),
+                },
+            }
+        )
+
     operator_guidance = []
     for warning in warnings:
         code = str(warning.get("code") or "")
@@ -182,11 +228,13 @@ def _build_consistency_attention(state: dict[str, Any]) -> dict[str, Any]:
 
     for warning in consistency.get("warnings") or []:
         code = str(warning.get("code") or "")
-        if code not in DELIVERY_HANDOFF_WARNING_CODES:
+        if code not in DELIVERY_HANDOFF_WARNING_CODES | DELIVERY_INTENT_WARNING_CODES:
             continue
         conditions.append(
             {
-                "code": "delivery_artifact_handoff_failed",
+                "code": code
+                if code in DELIVERY_INTENT_WARNING_CODES
+                else "delivery_artifact_handoff_failed",
                 "severity": "warning",
                 "message": warning.get("message")
                 or "Delivery artifact handoff needs operator review.",
@@ -200,13 +248,18 @@ def _build_consistency_attention(state: dict[str, Any]) -> dict[str, Any]:
     seen_action_codes: set[str] = set()
     for guidance in consistency.get("operator_guidance") or []:
         code = str(guidance.get("warning_code") or "")
-        if code not in DELIVERY_HANDOFF_WARNING_CODES or code in seen_action_codes:
+        if (
+            code not in DELIVERY_HANDOFF_WARNING_CODES | DELIVERY_INTENT_WARNING_CODES
+            or code in seen_action_codes
+        ):
             continue
         seen_action_codes.add(code)
         recommended_actions.append(
             {
                 "kind": "manual_review",
-                "warning_code": "delivery_artifact_handoff_failed",
+                "warning_code": code
+                if code in DELIVERY_INTENT_WARNING_CODES
+                else "delivery_artifact_handoff_failed",
                 "note": guidance.get("note")
                 or "Inspect delivery.primary_file, candidate artifacts, and review state.",
                 "checklist": guidance.get("checklist") or [],

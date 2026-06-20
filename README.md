@@ -272,7 +272,11 @@ forgotten owner target.
 Research Mode itself emits a serializable `delivery_intent`. Platform-specific
 wrappers should send the pending intent through their messaging surface, include
 `primary_file` and `attachments` when supported, and then call
-`record-notification --status sent` or `--status failed`.
+`record-notification --status sent` or `--status failed`. When a provider rejects
+the target shape, wrappers can pass
+`--error-code delivery_channel_addressing_failed`; Research Mode records only a
+sanitized target shape, such as whether chat/thread/topic ids were present, not
+the private ids themselves.
 
 #### Research Adequacy Gate
 
@@ -1026,6 +1030,14 @@ Research Mode намеренно разделяет ревью и доставк
 
 Это разделение не даёт непроверенному черновику, сырому артефакту рабочей
 области или заметке восстановления стать финальным пользовательским результатом.
+
+Для внешней отправки Research Mode создаёт сериализуемый `delivery_intent`.
+Адаптер канала отправляет текст и поддерживаемые файлы, затем вызывает
+`record-notification --status sent` или `--status failed`. Если провайдер
+отклоняет форму цели, адаптер может передать
+`--error-code delivery_channel_addressing_failed`; в состоянии сохраняется
+только безопасная форма цели, например наличие chat/thread/topic id, но не сами
+приватные id.
 
 #### Проверка достаточности исследования
 

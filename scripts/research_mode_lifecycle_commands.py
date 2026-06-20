@@ -55,6 +55,10 @@ from research_mode_runtime import (
     snapshot_job_binding,
     suspend_bound_job,
 )
+from research_mode_surface_delivery import (
+    classify_delivery_error,
+    notification_target_shape,
+)
 from research_mode_task import ResearchTask, StateManager
 from research_mode_utils import (
     NO_ACTIVE_LEASE,
@@ -1619,11 +1623,21 @@ def record_notification_command(args: argparse.Namespace) -> int:
             intent["status"] = "sent"
             intent["sent_at"] = intent.get("sent_at") or now
             intent["error"] = None
+            intent["error_code"] = None
+            intent["provider_target_shape"] = None
             intent["blocked_reason"] = None
         elif target_status == "failed":
             intent["status"] = "failed"
             intent["failed_at"] = now
             intent["error"] = str(args.error or "").strip() or "delivery failed"
+            error_code = (
+                str(getattr(args, "error_code", "") or "").strip()
+                or classify_delivery_error(intent.get("error"))
+            )
+            intent["error_code"] = error_code
+            intent["provider_target_shape"] = notification_target_shape(
+                intent.get("notification_target") or {}
+            )
         else:
             raise ValidationError(f"Unsupported notification status: {target_status}")
 
@@ -1636,6 +1650,7 @@ def record_notification_command(args: argparse.Namespace) -> int:
                 "delivery_intent_id": intent_id,
                 "previous_status": previous_status,
                 "status": intent["status"],
+                "error_code": intent.get("error_code"),
                 "sent_incremented": sent_incremented,
             }
         )
@@ -1643,6 +1658,8 @@ def record_notification_command(args: argparse.Namespace) -> int:
             "status": intent["status"],
             "delivery_intent_id": intent_id,
             "previous_status": previous_status,
+            "error_code": intent.get("error_code"),
+            "provider_target_shape": intent.get("provider_target_shape"),
             "sent_incremented": sent_incremented,
             "sent_updates": int(
                 state.setdefault("delivery", {}).get("sent_updates") or 0
