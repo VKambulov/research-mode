@@ -27,7 +27,6 @@ RAW_FINAL_ARTIFACT_SIGNALS = [
     "draft",
     "internal",
     "working",
-    "workspace/",
     "iterations/",
     ".tmp/",
     "evidence_urls",
@@ -153,25 +152,53 @@ def _normalize_deliverable_kind(kind: str | None) -> str | None:
 
 def _explicit_user_format_kind(deliverable_desc: str) -> str | None:
     text = f" {str(deliverable_desc or '').lower()} "
+    matches: list[tuple[int, int, str]] = []
     for kind, aliases in FORMAT_ALIASES.items():
-        if any(f" {alias} " in text or alias in text for alias in aliases):
-            return kind
+        for alias in aliases:
+            padded_alias = f" {alias} "
+            index = text.find(padded_alias)
+            if index < 0:
+                index = text.find(alias)
+            if index >= 0:
+                matches.append((index, len(alias), kind))
+                break
+    if not matches:
+        return None
+    _index, _length, kind = min(matches, key=lambda item: (item[0], -item[1]))
+    return kind
+
+
+def _format_to_deliverable_kind(artifact_format: str) -> str | None:
+    if artifact_format == "package":
+        return "package"
+    if artifact_format in {"markdown", "md"}:
+        return "markdown_report"
+    if artifact_format in {"pdf", "docx"}:
+        return f"{artifact_format}_report"
+    if artifact_format in {"html", "htm"}:
+        return "html_report"
+    if artifact_format in {"xlsx", "csv"}:
+        return artifact_format
     return None
 
 
-def _artifact_format_kind(artifact_check: dict[str, Any] | None) -> str | None:
+def _artifact_format_kind(
+    artifact_check: dict[str, Any] | None,
+    *,
+    preferred_primary_kind: str | None = None,
+) -> str | None:
+    artifacts = (artifact_check or {}).get("artifacts") or []
+    expected_formats = _expected_formats_for_primary_kind(str(preferred_primary_kind or ""))
+    if expected_formats:
+        for artifact in artifacts:
+            artifact_format = str(artifact.get("format") or "").strip().lower()
+            if artifact_format in expected_formats:
+                return _format_to_deliverable_kind(artifact_format)
     for artifact in (artifact_check or {}).get("artifacts") or []:
         artifact_format = str(artifact.get("format") or "").strip().lower()
-        if artifact_format == "package":
-            return "package"
-        if artifact_format in {"markdown", "md"}:
-            return "markdown_report"
-        if artifact_format in {"pdf", "docx"}:
-            return f"{artifact_format}_report"
-        if artifact_format in {"html", "htm"}:
-            return "html_report"
-        if artifact_format in {"xlsx", "csv"}:
-            return artifact_format
+        deliverable_kind = _format_to_deliverable_kind(artifact_format)
+        if deliverable_kind:
+            return deliverable_kind
     return None
 
 
@@ -187,7 +214,10 @@ def build_deliverable_format_decision(
     deliverable_desc = str(working_memory.get("deliverable") or "")
     explicit_kind = _explicit_user_format_kind(deliverable_desc)
     primary_kind = _normalize_deliverable_kind(trace.get("primary_deliverable_kind"))
-    feasible_kind = _artifact_format_kind(artifact_check)
+    feasible_kind = _artifact_format_kind(
+        artifact_check,
+        preferred_primary_kind=primary_kind,
+    )
     if not feasible_kind and str(report_markdown or "").strip():
         feasible_kind = "markdown_report"
 
@@ -520,6 +550,7 @@ def inspect_candidate_artifacts(
 
     checked: list[dict[str, Any]] = []
     reasons: list[str] = []
+    expected_formats = _expected_formats_for_primary_kind(primary_kind)
 
     for artifact in candidate_artifacts:
         artifact_path = str(artifact.get("path") or "").strip()
@@ -536,14 +567,6 @@ def inspect_candidate_artifacts(
         }
         if artifact_path in final_report_names and report_text:
             markdown_result = _inspect_markdown_text(report_text)
-            markdown_result["reasons"] = list(
-                dict.fromkeys(
-                    [
-                        *(markdown_result.get("reasons") or []),
-                        *_format_mismatch_reasons(primary_kind, "markdown"),
-                    ]
-                )
-            )
             checked.append(
                 {
                     "path": artifact_path,
@@ -597,14 +620,6 @@ def inspect_candidate_artifacts(
             continue
 
         file_result = _inspect_existing_file(resolved)
-        file_result["reasons"] = list(
-            dict.fromkeys(
-                [
-                    *(file_result.get("reasons") or []),
-                    *_format_mismatch_reasons(primary_kind, file_result.get("format")),
-                ]
-            )
-        )
         checked.append(
             {
                 "path": artifact_path,
@@ -616,6 +631,25 @@ def inspect_candidate_artifacts(
             }
         )
         reasons.extend(file_result.get("reasons") or [])
+
+    if expected_formats:
+        has_matching_primary = any(
+            str(item.get("format") or "").strip().lower() in expected_formats
+            for item in checked
+        )
+        if not has_matching_primary:
+            reasons.append("primary_deliverable_format_mismatch")
+            for item in checked:
+                artifact_format = str(item.get("format") or "").strip().lower()
+                if artifact_format and artifact_format not in expected_formats:
+                    item["reasons"] = list(
+                        dict.fromkeys(
+                            [
+                                *(item.get("reasons") or []),
+                                "primary_deliverable_format_mismatch",
+                            ]
+                        )
+                    )
 
     deduped_reasons = list(dict.fromkeys(reasons))
     return {

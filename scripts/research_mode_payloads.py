@@ -296,7 +296,10 @@ def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
     deliverable_decision = value.get("deliverable_decision")
     if deliverable_decision not in (None, ""):
         if not isinstance(deliverable_decision, dict):
-            raise ValidationError("finalization.deliverable_decision must be an object")
+            deliverable_decision = {
+                "reason": str(deliverable_decision).strip(),
+                "source": "worker_note",
+            }
         cleaned_decision: dict[str, Any] = {}
         for key in (
             "selected_kind",

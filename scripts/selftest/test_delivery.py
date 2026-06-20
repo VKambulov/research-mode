@@ -658,6 +658,137 @@ def test_worker_final_rejects_pdf_kind_with_markdown_candidate(root: Path) -> No
     )
 
 
+def test_worker_final_accepts_pdf_primary_with_supporting_markdown(root: Path) -> None:
+    task_id = "pdf-primary-with-markdown-support"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "PDF deliverable with editable Markdown companion.",
+            "--deliverable",
+            "PDF report with supporting Markdown",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    report_dir = task_dir / "workspace" / "outputs"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "final.pdf").write_bytes(b"%PDF-1.7\n% test pdf\n")
+    (report_dir / "final.md").write_text(
+        "# Final Report\n\n"
+        "## Summary\n\n"
+        "This readable Markdown companion mirrors the primary PDF report and is "
+        "kept only as an editable supporting artifact for reviewers.\n",
+        encoding="utf-8",
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "workspace/outputs/final.pdf",
+                "kind": "final_pdf_report",
+                "note": "Primary human-facing PDF report.",
+            },
+            {
+                "path": "workspace/outputs/final.md",
+                "kind": "final_markdown_report",
+                "note": "Editable Markdown companion.",
+            },
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "primary PDF candidate should pass even when Markdown companion is present",
+    )
+    findings = finished.get("finalization_validation", {}).get("findings") or []
+    artifact_finding = next(
+        (item for item in findings if item.get("check") == "candidate_artifact_inspection"),
+        {},
+    )
+    assert_true(
+        artifact_finding.get("passed"),
+        "candidate inspection should accept at least one matching primary PDF",
+    )
+    decision_finding = next(
+        (
+            item
+            for item in findings
+            if item.get("check") == "deliverable_format_decision"
+        ),
+        {},
+    )
+    assert_eq(
+        decision_finding.get("feasible_kind"),
+        "pdf_report",
+        "format decision should prefer the matching primary PDF over companions",
+    )
+    reasons = finished.get("finalization_validation", {}).get("reasons") or []
+    assert_true(
+        "raw_artifact_exposed_as_final" not in reasons,
+        "final report artifacts under workspace/outputs should not be treated as raw",
+    )
+
+
+def test_worker_final_tolerates_string_deliverable_decision_note(root: Path) -> None:
+    task_id = "string-deliverable-decision-note"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "PDF finalization should tolerate worker notes in optional decision field.",
+            "--deliverable",
+            "PDF report",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    report_dir = task_dir / "workspace" / "outputs"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "final.pdf").write_bytes(b"%PDF-1.7\n% test pdf\n")
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "pdf_report",
+        "deliverable_decision": "Use the generated PDF as the primary artifact.",
+        "candidate_artifacts": [
+            {
+                "path": "workspace/outputs/final.pdf",
+                "kind": "final_pdf_report",
+                "note": "Primary human-facing PDF report.",
+            }
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "string worker note in deliverable_decision should not make finish fail",
+    )
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    decision = (state.get("finalization") or {}).get("deliverable_decision") or {}
+    assert_eq(
+        decision.get("selected_kind"),
+        "pdf_report",
+        "validator-computed deliverable decision should replace worker note",
+    )
+
+
 def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(root: Path) -> None:
     task_id = "inferred-pdf-chat-report"
     json_out(
