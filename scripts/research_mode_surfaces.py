@@ -29,6 +29,7 @@ from research_mode_utils import (
     read_json,
     read_jsonl,
     read_tsv_rows,
+    resolve_under_task,
     scheduled_worker_timeout_seconds,
 )
 
@@ -99,14 +100,62 @@ def _path_format(path_value: str | None) -> str | None:
     return suffix or None
 
 
+def _resolve_state_task_path(state: dict[str, Any], path_value: Any) -> Path | None:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if path.is_absolute():
+        return path
+    task_dir = (state.get("artifacts") or {}).get("task_dir")
+    if not task_dir:
+        return path
+    try:
+        return resolve_under_task(Path(task_dir), path_text, label="state path")
+    except ValidationError:
+        return None
+
+
+def _matching_validated_artifact(
+    state: dict[str, Any],
+    primary_file: Any,
+) -> dict[str, Any] | None:
+    primary_path = _resolve_state_task_path(state, primary_file)
+    if primary_path is None:
+        return None
+    primary_resolved = primary_path.resolve()
+    for finding in (state.get("finalization") or {}).get("last_validation_findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            if artifact.get("reasons"):
+                continue
+            if artifact.get("format") == "package":
+                artifact_path = artifact.get("entrypoint_path")
+            elif artifact.get("source") == "final_report_markdown":
+                artifact_path = (state.get("artifacts") or {}).get("final_report_path")
+            else:
+                artifact_path = artifact.get("path")
+            candidate_path = _resolve_state_task_path(state, artifact_path)
+            if candidate_path is None:
+                continue
+            if candidate_path.resolve() == primary_resolved:
+                return artifact
+    return None
+
+
+def _has_candidate_artifact_inspection(state: dict[str, Any]) -> bool:
+    return any(
+        finding.get("check") == "candidate_artifact_inspection"
+        for finding in (state.get("finalization") or {}).get("last_validation_findings") or []
+    )
+
+
 def _state_file_exists(state: dict[str, Any], path_value: str | None) -> bool:
     if not path_value:
         return False
-    path = Path(str(path_value))
-    if path.is_absolute():
-        return path.exists()
-    task_dir = (state.get("artifacts") or {}).get("task_dir")
-    return bool(task_dir) and (Path(str(task_dir)) / path).exists()
+    path = _resolve_state_task_path(state, path_value)
+    return bool(path) and path.exists()
 
 
 DELIVERY_HANDOFF_WARNING_CODES = {
@@ -177,29 +226,32 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
             )
         primary_kind = str(finalization.get("primary_deliverable_kind") or "")
         expected_formats = expected_formats_for_primary_kind(primary_kind)
-        primary_format = _path_format(str(primary_file or ""))
         if (
             delivery.get("review_ready")
-            and candidate_artifacts
+            and _has_candidate_artifact_inspection(state)
             and primary_file
             and expected_formats
             and "package" not in expected_formats
-            and primary_format not in expected_formats
         ):
-            warnings.append(
-                {
-                    "code": "delivery_artifact_handoff_failed",
-                    "message": "task is review-ready but delivery.primary_file does not match the primary deliverable format",
-                    "details": {
-                        "primary_deliverable_kind": finalization.get(
-                            "primary_deliverable_kind"
-                        ),
-                        "expected_formats": sorted(expected_formats),
-                        "primary_file": primary_file,
-                        "primary_file_format": primary_format,
-                    },
-                }
-            )
+            artifact = _matching_validated_artifact(state, primary_file)
+            actual_format = str((artifact or {}).get("format") or "").strip().lower()
+            primary_format = actual_format or _path_format(str(primary_file or ""))
+            if not artifact or actual_format not in expected_formats:
+                warnings.append(
+                    {
+                        "code": "delivery_artifact_handoff_failed",
+                        "message": "task is review-ready but delivery.primary_file does not match the validated primary deliverable format",
+                        "details": {
+                            "primary_deliverable_kind": finalization.get(
+                                "primary_deliverable_kind"
+                            ),
+                            "expected_formats": sorted(expected_formats),
+                            "actual_format": actual_format or None,
+                            "primary_file": primary_file,
+                            "primary_file_format": primary_format,
+                        },
+                    }
+                )
         if not final_report_exists and not primary_exists:
             warnings.append(
                 {

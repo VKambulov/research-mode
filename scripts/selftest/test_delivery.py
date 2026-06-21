@@ -1088,6 +1088,33 @@ def test_awaiting_review_candidate_without_primary_file_sets_handoff_attention(r
                 "note": "Review-ready PDF candidate.",
             }
         ],
+        "last_validation_findings": [
+            {
+                "check": "candidate_artifact_inspection",
+                "passed": True,
+                "reasons": [],
+                "artifacts": [
+                    {
+                        "path": "reports/final.pdf",
+                        "kind": "pdf_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "pdf",
+                        "reasons": [],
+                    },
+                    {
+                        "path": "final-report.md",
+                        "kind": "markdown_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "markdown",
+                        "reasons": [],
+                    },
+                ],
+            }
+        ],
     }
     state["delivery"] = {
         "review_ready": True,
@@ -1156,6 +1183,33 @@ def test_awaiting_review_primary_file_mismatch_sets_handoff_attention(root: Path
                 "note": "Review-ready PDF candidate.",
             }
         ],
+        "last_validation_findings": [
+            {
+                "check": "candidate_artifact_inspection",
+                "passed": True,
+                "reasons": [],
+                "artifacts": [
+                    {
+                        "path": "reports/final.pdf",
+                        "kind": "pdf_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "pdf",
+                        "reasons": [],
+                    },
+                    {
+                        "path": "final-report.md",
+                        "kind": "markdown_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "markdown",
+                        "reasons": [],
+                    },
+                ],
+            }
+        ],
     }
     state["delivery"] = {
         "review_ready": True,
@@ -1176,6 +1230,68 @@ def test_awaiting_review_primary_file_mismatch_sets_handoff_attention(root: Path
             for item in attention.get("conditions") or []
         ),
         "awaiting_review PDF task with Markdown primary_file should surface handoff failure",
+    )
+
+
+def test_awaiting_review_primary_file_mismatch_requires_artifact_inspection(
+    root: Path,
+) -> None:
+    task_id = "review-primary-file-mismatch-no-inspection"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Legacy review-ready state should not invent handoff mismatch evidence.",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    reports_dir = task_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = reports_dir / "final.pdf"
+    markdown_path = task_dir / "final-report.md"
+    pdf_path.write_bytes(b"%PDF-1.7\n% test pdf\n")
+    markdown_path.write_text("# Final Report\n\nSupporting source.\n", encoding="utf-8")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["review"] = {"status": "pending", "review_gated": True}
+    state["finalization"] = {
+        **_HUMAN_READY_FINALIZATION,
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "reports/final.pdf",
+                "kind": "pdf_report",
+                "note": "Review-ready PDF candidate.",
+            }
+        ],
+        "last_validation_findings": [],
+    }
+    state["delivery"] = {
+        "review_ready": True,
+        "ready": False,
+        "primary_file": str(markdown_path),
+    }
+    state["artifacts"]["final_report_path"] = str(markdown_path)
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(run("summary", "--root", str(root), "--id", task_id, "--format", "json"))
+    attention = summary.get("operator_attention") or {}
+    assert_true(
+        not any(
+            item.get("code") == "delivery_artifact_handoff_failed"
+            for item in attention.get("conditions") or []
+        ),
+        "handoff mismatch warning should require validated candidate_artifact_inspection evidence",
     )
 
 
