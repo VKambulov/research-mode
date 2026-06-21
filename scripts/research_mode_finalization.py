@@ -23,18 +23,6 @@ FINALIZATION_REQUIRED_TRACE_FIELDS = [
     "validation_evidence",
 ]
 
-RAW_FINAL_ARTIFACT_SIGNALS = [
-    "raw",
-    "draft",
-    "internal",
-    "working",
-    "iterations/",
-    ".tmp/",
-    "evidence_urls",
-    "confidence",
-    "active/unknown",
-]
-
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
 EXPECTED_FORMATS_BY_PRIMARY_KIND = {
@@ -213,9 +201,25 @@ def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
             "blocking_defects must be empty",
             "validation_evidence must describe what was checked",
             "candidate_artifacts must be user-facing or the report text must be self-contained",
-            "raw/internal workspace artifacts must not be exposed as the final result",
+            "candidate_artifacts should set visibility to user_facing or internal",
+            "the primary user-facing artifact should set role to primary",
+            "internal workspace artifacts must not be exposed as the final result",
         ],
-        "raw_artifact_signals": RAW_FINAL_ARTIFACT_SIGNALS,
+        "candidate_artifact_requirements": {
+            "visibility": ["user_facing", "internal"],
+            "primary_role": "primary",
+            "internal_paths": [
+                "iterations/",
+                ".tmp/",
+                "workspace/tmp/",
+                "workspace/analysis/",
+                "workspace/data/",
+                "workspace/tools/",
+                "workspace/vision/",
+                "workspace/screenshots/",
+            ],
+            "package_exception": "package artifacts may live under workspace/outputs/",
+        },
         "requested_deliverable": working_memory.get("deliverable"),
         "current_status": finalization.get("status") or "not_started",
         "attempt_count": int(finalization.get("attempt_count") or 0),

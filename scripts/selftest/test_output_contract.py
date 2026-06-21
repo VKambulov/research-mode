@@ -238,3 +238,96 @@ def test_explicit_output_contract_kind_controls_format(root: Path) -> None:
         "markdown_report",
         "artifact kind is feasible",
     )
+
+
+def test_quality_checks_are_activated_only_by_contract(root: Path) -> None:
+    from research_mode_lifecycle_helpers import inspect_deliverable_requirements
+
+    report = "# Informe\n\nTexto breve sin lista."
+
+    without_contract = inspect_deliverable_requirements(
+        "bullet list",
+        report,
+        payload={},
+        total_sources=1,
+        total_findings=1,
+        output_contract={"quality_checks": []},
+    )
+    assert_eq(
+        without_contract.get("checks"),
+        [],
+        "free text should not activate quality checks",
+    )
+
+    with_contract = inspect_deliverable_requirements(
+        "",
+        report,
+        payload={},
+        total_sources=1,
+        total_findings=1,
+        output_contract={"quality_checks": [{"kind": "bullet_list", "min_items": 2}]},
+    )
+    bullet_check = next(
+        check for check in with_contract["checks"] if check["kind"] == "bullet_list"
+    )
+    assert_eq(bullet_check["passed"], False, "contract bullet_list should be enforced")
+    assert_in(
+        "deliverable_bullet_list_unstructured",
+        with_contract["reasons"],
+        "bullet list reason",
+    )
+
+
+def test_comparative_matrix_check_uses_shape_not_header_language(root: Path) -> None:
+    from research_mode_lifecycle_helpers import inspect_deliverable_requirements
+
+    report = """# 比较
+
+| 甲 | 乙 | 丙 |
+| --- | --- | --- |
+| A | 1 | x |
+| B | 2 | y |
+"""
+    validation = inspect_deliverable_requirements(
+        "",
+        report,
+        payload={},
+        total_sources=2,
+        total_findings=2,
+        output_contract={
+            "quality_checks": [
+                {"kind": "comparative_matrix", "min_rows": 2, "min_columns": 3}
+            ]
+        },
+    )
+    check = next(
+        item for item in validation["checks"] if item["kind"] == "comparative_matrix"
+    )
+    assert_eq(
+        check["passed"],
+        True,
+        "matrix shape should pass regardless of header language",
+    )
+
+
+def test_free_text_deliverable_does_not_activate_comparative_check(root: Path) -> None:
+    from research_mode_lifecycle_helpers import inspect_deliverable_requirements
+
+    validation = inspect_deliverable_requirements(
+        "сравнительная записка",
+        "# Note\n\n- A\n- B\n",
+        payload={},
+        total_sources=2,
+        total_findings=2,
+        output_contract={"quality_checks": []},
+    )
+    assert_eq(
+        validation["checks"],
+        [],
+        "free-text deliverable must not activate comparative validation",
+    )
+    assert_eq(
+        validation["reasons"],
+        [],
+        "no contract means no comparative rejection",
+    )

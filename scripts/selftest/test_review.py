@@ -814,8 +814,8 @@ def test_validation_findings_in_summary_json(root: Path) -> None:
     )
     check_names = {f.get("check") for f in findings}
     assert_in(
-        "draft_artifacts", check_names,
-        "findings should include draft_artifacts check",
+        "finalization_trace", check_names,
+        "findings should include finalization_trace check",
     )
 
 
@@ -1925,8 +1925,8 @@ def test_playbook_validation_scorecard(root: Path) -> None:
         "playbook should have Validation scorecard section",
     )
     assert_in(
-        "draft_artifacts", playbook_text,
-        "playbook should show draft_artifacts check name",
+        "human_readiness", playbook_text,
+        "playbook should show human_readiness check name",
     )
     assert_in(
         "FAIL", playbook_text,

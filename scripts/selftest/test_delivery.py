@@ -359,8 +359,10 @@ def test_worker_final_rejects_raw_artifact_exposed_as_final(root: Path) -> None:
         "candidate_artifacts": [
             {
                 "path": "workspace/outputs/client_check_raw.xlsx",
-                "kind": "raw_workbook",
-                "note": "Contains active/unknown/confidence/evidence_urls working fields.",
+                "kind": "xlsx",
+                "visibility": "internal",
+                "role": "primary",
+                "note": "Working workbook is not ready for review.",
             }
         ],
         "validation_evidence": [
@@ -384,6 +386,81 @@ def test_worker_final_rejects_raw_artifact_exposed_as_final(root: Path) -> None:
         "raw_artifact_exposed_as_final",
         reasons,
         "validation should identify raw artifact exposure",
+    )
+
+
+def test_candidate_note_with_word_draft_does_not_fail_when_artifact_is_valid(root: Path) -> None:
+    from research_mode_lifecycle_helpers import _check_finalization_trace
+
+    finalization = {
+        "status": "passed",
+        "inferred_user_need": "Readable result for review.",
+        "intended_recipient": "operator",
+        "primary_deliverable_kind": "markdown_report",
+        "internal_artifacts": [],
+        "candidate_artifacts": [
+            {
+                "path": "final-report.md",
+                "kind": "markdown_report",
+                "visibility": "user_facing",
+                "role": "primary",
+                "note": "Earlier draft wording was reviewed and removed.",
+            }
+        ],
+        "blocking_defects": [],
+        "validation_evidence": [
+            {"kind": "manual_review", "summary": "Reviewed final artifact."}
+        ],
+    }
+
+    result = _check_finalization_trace(
+        finalization, "# Report\n\nFinal readable report text."
+    )
+
+    assert_eq(
+        result.get("passed"),
+        True,
+        "word draft in note must not fail structural validation",
+    )
+    assert_true(
+        "raw_artifact_exposed_as_final" not in (result.get("reasons") or []),
+        "raw/final decision must not scan note text",
+    )
+
+
+def test_internal_visibility_candidate_is_rejected_as_final(root: Path) -> None:
+    from research_mode_lifecycle_helpers import _check_finalization_trace
+
+    finalization = {
+        "status": "passed",
+        "inferred_user_need": "Readable result for review.",
+        "intended_recipient": "operator",
+        "primary_deliverable_kind": "markdown_report",
+        "internal_artifacts": [],
+        "candidate_artifacts": [
+            {
+                "path": "final-report.md",
+                "kind": "markdown_report",
+                "visibility": "internal",
+                "role": "primary",
+                "note": "No forbidden words needed.",
+            }
+        ],
+        "blocking_defects": [],
+        "validation_evidence": [
+            {"kind": "manual_review", "summary": "Reviewed final artifact."}
+        ],
+    }
+
+    result = _check_finalization_trace(
+        finalization, "# Report\n\nFinal readable report text."
+    )
+
+    assert_eq(result.get("passed"), False, "internal candidate cannot be final")
+    assert_in(
+        "raw_artifact_exposed_as_final",
+        result.get("reasons") or [],
+        "internal visibility reason",
     )
 
 

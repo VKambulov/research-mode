@@ -55,7 +55,7 @@ def test_adequacy_contract_carries_goal_constraints_and_open_questions(root: Pat
 def test_detect_comparative_structure_accepts_ranked_table(root: Path) -> None:
     report = """# Recommendation
 
-| Rank | Candidate | Decision | Main risk |
+| 甲 | 乙 | 丙 | 丁 |
 | --- | --- | --- | --- |
 | 1 | A | choose | supply |
 | 2 | B | backup | price |
@@ -63,23 +63,23 @@ def test_detect_comparative_structure_accepts_ranked_table(root: Path) -> None:
 
     result = detect_comparative_structure(report)
 
-    assert_eq(result["passed"], True, "ranked candidate table should be comparative")
-    assert_in("ranked_table", result["signals"], "ranked table signal should be explicit")
+    assert_eq(result["passed"], True, "table shape should be comparative")
+    assert_in("table_shape", result["signals"], "table shape signal should be explicit")
 
 
 def test_detect_comparative_structure_accepts_risk_matrix(root: Path) -> None:
     report = """# Decision Matrix
 
-| Alternative | Probability | Impact | Mitigation |
-| --- | --- | --- | --- |
-| A | medium | high | supplier reserve |
-| B | low | medium | price cap |
+| 一 | 二 |
+| --- | --- |
+| A | supplier reserve |
+| B | price cap |
 """
 
     result = detect_comparative_structure(report)
 
-    assert_eq(result["passed"], True, "risk matrix with alternatives should be comparative")
-    assert_in("risk_matrix", result["signals"], "risk matrix signal should be explicit")
+    assert_eq(result["passed"], True, "matrix shape should be comparative")
+    assert_in("table_shape", result["signals"], "table shape signal should be explicit")
 
 
 def test_comparative_deliverable_rejects_plain_bullets_without_criteria(root: Path) -> None:
@@ -95,9 +95,14 @@ def test_comparative_deliverable_rejects_plain_bullets_without_criteria(root: Pa
         payload={},
         total_sources=2,
         total_findings=2,
+        output_contract={
+            "quality_checks": [
+                {"kind": "comparative_matrix", "min_rows": 2, "min_columns": 2}
+            ]
+        },
     )
     comparative_check = next(
-        check for check in validation["checks"] if check["kind"] == "comparative"
+        check for check in validation["checks"] if check["kind"] == "comparative_matrix"
     )
 
     assert_eq(comparative_check["passed"], False, "plain bullets should not satisfy comparative shape")

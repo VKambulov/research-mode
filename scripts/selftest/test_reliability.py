@@ -25,6 +25,19 @@ def _completion_rejection_event(*, run_id: str, reason: str) -> dict:
     }
 
 
+def _set_output_quality_checks(root: Path, task_id: str, checks: list[dict]) -> None:
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    contract = state.setdefault("working_memory", {}).setdefault(
+        "output_contract", {}
+    )
+    contract["quality_checks"] = checks
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_reliability_counter_records_repeated_fingerprint() -> None:
     state: dict = {}
     event = _completion_rejection_event(
@@ -297,6 +310,11 @@ def test_repeated_completion_validation_rejection_sets_operator_attention(root: 
         "итог в виде bullet list",
         "--skip-preflight",
     )
+    _set_output_quality_checks(
+        root,
+        task_id,
+        [{"kind": "bullet_list", "min_items": 2}],
+    )
     lease = json_out(run("begin", "--root", str(root), "--id", task_id))
     lease = route_to_finalize(root, task_id, lease)
 
@@ -346,6 +364,11 @@ def test_successful_completion_clears_completion_validation_retry_attention(root
         "--deliverable",
         "итог в виде bullet list",
         "--skip-preflight",
+    )
+    _set_output_quality_checks(
+        root,
+        task_id,
+        [{"kind": "bullet_list", "min_items": 2}],
     )
     lease = json_out(run("begin", "--root", str(root), "--id", task_id))
     lease = route_to_finalize(root, task_id, lease)

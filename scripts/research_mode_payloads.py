@@ -127,6 +127,12 @@ def _normalize_typed_artifacts(value: Any, label: str) -> list[dict[str, Any]]:
         entry = {"path": artifact_path, "kind": artifact_kind}
         if artifact_note:
             entry["note"] = artifact_note
+        artifact_visibility = str(item.get("visibility") or "").strip()
+        if artifact_visibility:
+            entry["visibility"] = artifact_visibility
+        artifact_role = str(item.get("role") or "").strip()
+        if artifact_role:
+            entry["role"] = artifact_role
         result.append(entry)
     return result
 
