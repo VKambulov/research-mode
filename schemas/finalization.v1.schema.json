@@ -8,7 +8,20 @@
   "required": ["status"],
   "properties": {
     "status": {"type": "string"},
-    "primary_deliverable_kind": {"type": ["string", "null"]},
+    "primary_deliverable_kind": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "markdown_report",
+        "pdf_report",
+        "docx_report",
+        "html_report",
+        "xlsx",
+        "csv",
+        "package",
+        "unknown"
+      ]
+    },
     "deliverable_decision": {
       "type": ["object", "null"],
       "additionalProperties": true,

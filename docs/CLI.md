@@ -78,6 +78,9 @@ operators can perform one bounded iteration safely.
   feasible user-facing formats. If finalization returns `rework`, failed
   validation reason codes are included in `health` so operators can repair the
   deliverable before review.
+- `--deliverable` remains free-text guidance for the worker and surfaces.
+  `--deliverable-kind` / `set-deliverable --kind` set the structured
+  `working_memory.output_contract.kind` enum used by validation.
 
 ### Normal Completion Path
 
@@ -179,6 +182,9 @@ OpenClaw запустить или проверить Research Mode из чат�
   желаемым и фактически доступным пользовательским форматом. Если finalization
   возвращает `rework`, failed validation reason codes попадают в `health`, чтобы
   оператор мог исправить deliverable до review.
+- `--deliverable` остаётся свободным текстом для guidance worker-а и surfaces.
+  `--deliverable-kind` / `set-deliverable --kind` задают структурный enum
+  `working_memory.output_contract.kind`, который использует validation.
 
 ### Нормальный путь завершения
 

@@ -7,6 +7,17 @@ from typing import Any
 from research_mode_task import ResearchTask
 from research_mode_utils import NO_ACTIVE_LEASE, ValidationError, utc_now
 
+CANONICAL_DELIVERABLE_KINDS = {
+    "markdown_report",
+    "pdf_report",
+    "docx_report",
+    "html_report",
+    "xlsx",
+    "csv",
+    "package",
+    "unknown",
+}
+
 
 def normalize_string_list(value: Any) -> list[str]:
     if value is None:
@@ -162,6 +173,44 @@ def finalization_defaults() -> dict[str, Any]:
         "last_validation_findings": [],
         "last_validated_at": None,
     }
+
+
+def output_contract_defaults() -> dict[str, Any]:
+    return {
+        "kind": None,
+        "quality_checks": [],
+        "search_profile": None,
+    }
+
+
+def normalize_output_contract(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return output_contract_defaults()
+    if not isinstance(value, dict):
+        raise ValidationError("output_contract must be an object")
+    result = output_contract_defaults()
+    kind = value.get("kind")
+    if kind not in (None, ""):
+        kind = str(kind).strip()
+        if kind not in CANONICAL_DELIVERABLE_KINDS:
+            allowed = ", ".join(sorted(CANONICAL_DELIVERABLE_KINDS))
+            raise ValidationError(f"Unsupported output_contract.kind: {kind}. Allowed: {allowed}")
+        result["kind"] = kind
+    quality_checks = value.get("quality_checks")
+    if quality_checks is not None:
+        if not isinstance(quality_checks, list):
+            raise ValidationError("output_contract.quality_checks must be a list")
+        result["quality_checks"] = quality_checks
+    search_profile = value.get("search_profile")
+    if search_profile not in (None, ""):
+        if not isinstance(search_profile, dict):
+            raise ValidationError("output_contract.search_profile must be an object")
+        result["search_profile"] = {
+            str(key).strip(): item
+            for key, item in search_profile.items()
+            if str(key).strip() and item not in (None, "")
+        } or None
+    return result
 
 
 def adequacy_defaults() -> dict[str, Any]:
@@ -556,6 +605,9 @@ def build_initial_state(
             ),
             "deliverable": (
                 str(getattr(args, "deliverable", "") or "").strip() or None
+            ),
+            "output_contract": normalize_output_contract(
+                {"kind": getattr(args, "deliverable_kind", None)}
             ),
             "contract": None,
             "user_instructions": normalize_string_list(

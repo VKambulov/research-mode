@@ -99,3 +99,57 @@ def test_old_state_gets_reliability_defaults_on_status(root: Path) -> None:
     assert_eq(health.get("status"), "ok", "legacy state should be healthy by default")
     lease = json_out(run("begin", "--root", str(root), "--id", "legacy-state-status"))
     assert_eq(lease.get("status"), "leased", "legacy state should still lease work")
+
+
+def test_old_state_without_output_contract_still_loads(root: Path) -> None:
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "old-no-output-contract",
+            "--goal",
+            "Legacy state without output contract",
+            "--skip-preflight",
+        )
+    )
+    assert_eq(created["status"], "created", "create status")
+
+    state_path = root / "old-no-output-contract" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("working_memory", {}).pop("output_contract", None)
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            "old-no-output-contract",
+            "--format",
+            "json",
+        )
+    )
+    health = json_out(
+        run(
+            "health",
+            "--root",
+            str(root),
+            "--id",
+            "old-no-output-contract",
+            "--format",
+            "json",
+        )
+    )
+
+    assert_eq(summary["id"], "old-no-output-contract", "summary should load")
+    assert_in(
+        health["status"],
+        ["ok", "repair_needed", "fresh_continuation_recommended"],
+        "health should load",
+    )
