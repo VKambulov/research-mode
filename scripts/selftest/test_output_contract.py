@@ -331,3 +331,59 @@ def test_free_text_deliverable_does_not_activate_comparative_check(root: Path) -
         [],
         "no contract means no comparative rejection",
     )
+
+
+def test_ru_text_does_not_auto_enable_local_routing(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "ru-text-no-local-routing",
+            "--goal",
+            "Найти контакты магазинов в Ростове",
+            "--skip-preflight",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", "ru-text-no-local-routing"))
+    guidance = "\n".join(lease.get("execution_guidance") or [])
+
+    assert_eq(
+        "RU/local/regional research" in guidance,
+        False,
+        "Russian free text alone must not activate local routing guidance",
+    )
+
+
+def test_explicit_search_profile_controls_routing_guidance(root: Path) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "explicit-local-routing",
+            "--goal",
+            "Find local businesses",
+            "--skip-preflight",
+        )
+    )
+    state_path = root / "explicit-local-routing" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("working_memory", {})["search_profile"] = {
+        "scope": "local",
+        "locale": "ru-RU",
+        "region_hint": "RU-ROS",
+        "discovery_mode": "serp_first",
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    lease = json_out(run("begin", "--root", str(root), "--id", "explicit-local-routing"))
+    guidance = "\n".join(lease.get("execution_guidance") or [])
+
+    assert_in("local", guidance.lower(), "explicit local profile should affect guidance")
+    assert_in("serp", guidance.lower(), "explicit serp_first profile should affect guidance")

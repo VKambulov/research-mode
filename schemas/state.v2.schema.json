@@ -53,7 +53,8 @@
             "quality_checks": {"type": "array"},
             "search_profile": {"type": ["object", "null"]}
           }
-        }
+        },
+        "search_profile": {"type": ["object", "null"]}
       }
     },
     "review": {"type": "object", "additionalProperties": true},

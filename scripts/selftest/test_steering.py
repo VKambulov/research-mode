@@ -127,14 +127,26 @@ def test_ru_local_guidance(root: Path) -> None:
             "--instruction", "Нужен список ресурсов и локальная выдача по региону")
     )
     assert_eq(ru_local["status"], "created", "ru-local task should be created")
+    state_path = ru_root / "ru-local-1" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("working_memory", {})["search_profile"] = {
+        "scope": "local",
+        "locale": "ru-RU",
+        "region_hint": "RU-ROS",
+        "discovery_mode": "serp_first",
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     lease = json_out(run("begin", "--root", str(ru_root), "--id", "ru-local-1"))
     assert_true(
-        any("regional or local search tools" in item.lower() for item in lease["execution_guidance"]),
-        "RU/local work order should bias toward regional/local discovery",
+        any("search_profile.scope=local" in item for item in lease["execution_guidance"]),
+        "explicit local search profile should bias toward local discovery",
     )
     assert_true(
-        any("synthesis-first" in item.lower() and "candidate resources" in item.lower() for item in lease["execution_guidance"]),
-        "RU/local work order should push synthesis-first search into secondary synthesis role",
+        any("serp_first" in item for item in lease["execution_guidance"]),
+        "explicit search profile should expose discovery mode",
     )
     assert_true(
         any("same language" in item.lower() for item in lease["execution_guidance"]),

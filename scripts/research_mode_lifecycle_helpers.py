@@ -37,100 +37,38 @@ INTERNAL_CANDIDATE_PATH_PREFIXES = (
     "workspace/vision/",
     "workspace/screenshots/",
 )
+SEARCH_SCOPES = {"local", "regional", "national", "global", "unknown"}
+DISCOVERY_MODES = {"serp_first", "synthesis_first", "corpus_first", "unknown"}
 
 
-def _routing_text_blob(state: dict[str, Any]) -> str:
+def _structured_search_profile(state: dict[str, Any]) -> dict[str, Any]:
     working_memory = state.get("working_memory") or {}
-    parts: list[str] = []
-    for value in (
-        state.get("title"),
-        state.get("goal"),
-        state.get("phase"),
-        working_memory.get("summary"),
-        working_memory.get("next_angle"),
-        working_memory.get("deliverable"),
-    ):
+    raw_profile = working_memory.get("search_profile")
+    if not isinstance(raw_profile, dict):
+        output_contract = working_memory.get("output_contract") or {}
+        if isinstance(output_contract, dict):
+            raw_profile = output_contract.get("search_profile")
+    if not isinstance(raw_profile, dict):
+        return {}
+
+    scope = str(raw_profile.get("scope") or "unknown").strip().lower()
+    discovery_mode = str(
+        raw_profile.get("discovery_mode") or "unknown"
+    ).strip().lower()
+    if scope not in SEARCH_SCOPES:
+        scope = "unknown"
+    if discovery_mode not in DISCOVERY_MODES:
+        discovery_mode = "unknown"
+
+    profile: dict[str, Any] = {
+        "scope": scope,
+        "discovery_mode": discovery_mode,
+    }
+    for key in ("locale", "region_hint"):
+        value = str(raw_profile.get(key) or "").strip()
         if value:
-            parts.append(str(value))
-    for key in ("open_questions", "constraints", "user_instructions"):
-        for item in working_memory.get(key) or []:
-            if item:
-                parts.append(str(item))
-    return "\n".join(parts).lower()
-
-
-def _looks_like_ru_local_research(state: dict[str, Any]) -> bool:
-    text = _routing_text_blob(state)
-    if not text:
-        return False
-
-    geo_markers = (
-        "росси",
-        "рф",
-        "рунет",
-        "каменск",
-        "каменск-шахтин",
-        "ростов",
-        "краснодар",
-        "ставрополь",
-        "волгоград",
-        "воронеж",
-        "калмыки",
-        "адыге",
-        "крым",
-        "москва",
-        "санкт-петербург",
-        "питер",
-        "спб",
-        "регион",
-        "город",
-        "область",
-        "край",
-        "republic of crimea",
-        "rostov",
-        "krasnodar",
-        "stavropol",
-        "volgograd",
-        "voronezh",
-        "adygea",
-        "kalmykia",
-        "crimea",
-    )
-    local_discovery_terms = (
-        "контакт",
-        "телефон",
-        "адрес",
-        "сайт",
-        "домен",
-        "карты",
-        "организац",
-        "компан",
-        "бизнес",
-        "магазин",
-        "сервис",
-        "услуг",
-        "список ресурсов",
-        "ресурс",
-        "список сайтов",
-        "local business",
-        "contact",
-        "phone",
-        "address",
-        "company",
-        "business",
-        "website",
-        "domain",
-        "directory",
-        "map",
-        "maps",
-        "serp",
-    )
-
-    has_geo = any(marker in text for marker in geo_markers)
-    has_local_discovery = any(marker in text for marker in local_discovery_terms)
-    has_cyrillic = bool(re.search(r"[а-яё]", text, flags=re.IGNORECASE))
-
-    return has_geo or (has_local_discovery and has_cyrillic)
+            profile[key] = value
+    return profile
 
 
 def _build_search_routing_guidance(state: dict[str, Any]) -> list[str]:
@@ -139,13 +77,34 @@ def _build_search_routing_guidance(state: dict[str, Any]) -> list[str]:
         "For discovery-heavy research, prefer tools that expose raw source lists / SERPs before relying on synthesis-first search.",
         "Use synthesis-first search after you already have candidate resources, or when the topic is clearly global/international rather than local/regional.",
     ]
-    if _looks_like_ru_local_research(state):
+    search_profile = _structured_search_profile(state)
+    scope = search_profile.get("scope")
+    discovery_mode = search_profile.get("discovery_mode")
+    if scope in {"local", "regional", "national"}:
+        scope_text = str(scope).replace("_", " ")
+        region_hint = search_profile.get("region_hint")
+        locale = search_profile.get("locale")
         guidance.extend(
             [
-                "This looks like RU/local/regional research: prefer regional or local search tools as the first-pass discovery path, then inspect direct sources with the most appropriate follow-up tools for the case.",
-                "For local business / address / contact / company discovery, use source-list or SERP-style discovery first to gather candidate resources before leaning on synthesis-first summaries.",
-                "When a city or region is known, include it directly in the query text and use region-aware search options when available so the search is geographically anchored.",
+                f"Structured search_profile.scope={scope_text}: prefer matching geographic discovery tools before broad synthesis.",
             ]
+        )
+        if region_hint or locale:
+            guidance.append(
+                "Structured search profile hints: "
+                + ", ".join(
+                    item
+                    for item in (
+                        f"region_hint={region_hint}" if region_hint else "",
+                        f"locale={locale}" if locale else "",
+                    )
+                    if item
+                )
+                + "."
+            )
+    if discovery_mode and discovery_mode != "unknown":
+        guidance.append(
+            f"Structured search_profile.discovery_mode={discovery_mode}: use that discovery mode as the first-pass search strategy."
         )
     return guidance
 
