@@ -1183,8 +1183,7 @@ def compute_source_quality_score(source: dict[str, Any]) -> dict[str, Any]:
 
     hostname_parts = [part for part in hostname.split(".") if part]
     if (
-        "official_source" in tags
-        or any(part in {"gov", "edu"} for part in hostname_parts)
+        any(part in {"gov", "edu"} for part in hostname_parts)
         or hostname.endswith(".gov")
         or hostname.endswith(".edu")
     ):

@@ -28,6 +28,18 @@ def test_source_quality_uses_structured_tags_and_domain() -> None:
     assert "authoritative_tag" in result["factors"]
 
 
+def test_official_source_tag_does_not_claim_official_domain() -> None:
+    source = {
+        "url": "https://example.com/report",
+        "tags": ["official_source"],
+    }
+
+    result = compute_source_quality_score(source)
+
+    assert "official_domain" not in result["factors"]
+    assert "authoritative_tag" in result["factors"]
+
+
 def test_source_quality_ignores_uncontrolled_tag_text() -> None:
     source = {
         "url": "https://example.com/report",
