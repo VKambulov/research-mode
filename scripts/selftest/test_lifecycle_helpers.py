@@ -188,9 +188,9 @@ def test_source_quality_user_generated(root: Path) -> None:
 def test_source_quality_authoritative_tag(root: Path) -> None:
     result = compute_source_quality_score({
         "url": "https://example.com",
-        "tags": ["primary", "verified"],
+        "tags": ["primary_source"],
     })
-    assert_in("authoritative_tag", result["factors"], "verified tag should boost score")
+    assert_in("authoritative_tag", result["factors"], "controlled tag should boost score")
 
 
 def test_source_quality_stale_tag(root: Path) -> None:

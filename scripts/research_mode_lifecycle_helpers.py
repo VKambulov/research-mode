@@ -4,6 +4,7 @@ import datetime as dt
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from research_mode_corpus import list_corpus_entries
 from research_mode_adequacy import build_adequacy_contract, build_adequacy_guidance
@@ -39,6 +40,13 @@ INTERNAL_CANDIDATE_PATH_PREFIXES = (
 )
 SEARCH_SCOPES = {"local", "regional", "national", "global", "unknown"}
 DISCOVERY_MODES = {"serp_first", "synthesis_first", "corpus_first", "unknown"}
+SOURCE_TAGS = {
+    "primary_source",
+    "official_source",
+    "user_generated",
+    "stale",
+    "unverified",
+}
 
 
 def _structured_search_profile(state: dict[str, Any]) -> dict[str, Any]:
@@ -1162,47 +1170,47 @@ def compute_confidence_score(
 
 def compute_source_quality_score(source: dict[str, Any]) -> dict[str, Any]:
     url = str(source.get("url") or "")
-    title = str(source.get("title") or "").lower()
-    note = str(source.get("note") or "").lower()
-    tags = [str(t).lower() for t in (source.get("tags") or [])]
+    hostname = urlparse(url).hostname or ""
+    hostname = hostname.lower().strip(".")
+    tags = {
+        str(tag).strip().lower()
+        for tag in (source.get("tags") or [])
+        if str(tag).strip().lower() in SOURCE_TAGS
+    }
     fetched_at = source.get("fetched_at") or source.get("recorded_at")
-    all_tags = tags + [note]
     score = 0.5
     factors: list[str] = []
 
-    official_signals = [
-        "official",
-        "government",
-        "edu",
-        "gov",
-        "org.",
-        "autoridade",
-        "ministerio",
-        "government",
-        ".gov.",
-        ".edu",
-    ]
-    if any(s in url.lower() or s in title for s in official_signals):
+    hostname_parts = [part for part in hostname.split(".") if part]
+    if (
+        "official_source" in tags
+        or any(part in {"gov", "edu"} for part in hostname_parts)
+        or hostname.endswith(".gov")
+        or hostname.endswith(".edu")
+    ):
         score += 0.25
         factors.append("official_domain")
 
-    user_gen_signals = [
-        "forum",
-        "reddit",
-        "quora",
-        ".stackex",
-        "blogspot",
+    user_generated_hosts = (
+        "reddit.com",
+        "quora.com",
+        "stackoverflow.com",
+        "stackexchange.com",
+        "blogspot.com",
         "medium.com",
-    ]
-    if any(s in url.lower() for s in user_gen_signals):
+    )
+    if "user_generated" in tags or any(
+        hostname == host or hostname.endswith(f".{host}")
+        for host in user_generated_hosts
+    ):
         score -= 0.1
         factors.append("user_generated_platform")
 
-    if any(s in all_tags for s in ("primary", "verified", "authoritative")):
+    if tags.intersection({"primary_source", "official_source"}):
         score += 0.15
         factors.append("authoritative_tag")
 
-    if any(s in all_tags for s in ("stale", "outdated", "unverified")):
+    if tags.intersection({"stale", "unverified"}):
         score -= 0.2
         factors.append("stale_tag")
 
