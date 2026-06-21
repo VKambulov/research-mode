@@ -257,6 +257,194 @@ def test_consistency_warning_delivery_ready_missing_primary(root: Path) -> None:
     )
 
 
+def test_consistency_accepts_existing_relative_primary_file(root: Path) -> None:
+    task_id = "warn-delivery-relative-primary"
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Test relative primary path compatibility",
+        )
+    )
+    assert_eq(created["status"], "created", "create status")
+
+    task_dir = root / task_id
+    (task_dir / "reports").mkdir(parents=True, exist_ok=True)
+    (task_dir / "reports" / "final.pdf").write_bytes(b"%PDF-1.4\n")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "complete"
+    state["delivery"] = {"ready": True, "primary_file": "reports/final.pdf"}
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    summary_json = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    warnings = summary_json.get("consistency", {}).get("warnings") or []
+    assert_true(
+        not any(w.get("code") == "delivery_ready_but_missing_primary" for w in warnings),
+        "relative delivery.primary_file should be resolved relative to task dir",
+    )
+
+
+def test_consistency_warns_when_delivery_primary_format_mismatches_finalization(
+    root: Path,
+) -> None:
+    task_id = "warn-delivery-pdf-markdown-mismatch"
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Test delivery primary mismatch",
+        )
+    )
+    assert_eq(created["status"], "created", "create status")
+
+    task_dir = root / task_id
+    final_report = task_dir / "final-report.md"
+    final_report.write_text(
+        "# Final Report\n\nThis Markdown file is only supporting material.\n",
+        encoding="utf-8",
+    )
+    pdf_path = task_dir / "reports" / "final.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["artifacts"]["final_report_path"] = str(final_report)
+    state["delivery"] = {
+        "ready": False,
+        "review_ready": True,
+        "primary_file": str(final_report),
+    }
+    state["finalization"] = {
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "last_validation_findings": [
+            {
+                "check": "candidate_artifact_inspection",
+                "passed": True,
+                "reasons": [],
+                "artifacts": [
+                    {
+                        "path": "reports/final.pdf",
+                        "kind": "pdf_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "pdf",
+                        "reasons": [],
+                    },
+                    {
+                        "path": "final-report.md",
+                        "kind": "markdown_report",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "format": "markdown",
+                        "reasons": [],
+                    },
+                ],
+            }
+        ],
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    summary_json = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    warnings = summary_json.get("consistency", {}).get("warnings") or []
+    assert_true(
+        any(w.get("code") == "delivery_artifact_handoff_failed" for w in warnings),
+        "summary should warn when PDF finalization hands off Markdown as primary",
+    )
+
+
+def test_consistency_does_not_warn_without_artifact_inspection(
+    root: Path,
+) -> None:
+    task_id = "legacy-finalization-no-inspection"
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Test legacy finalization compatibility",
+        )
+    )
+    assert_eq(created["status"], "created", "create status")
+
+    task_dir = root / task_id
+    pdf_path = task_dir / "reports" / "final.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["delivery"] = {
+        "ready": False,
+        "review_ready": True,
+        "primary_file": str(pdf_path),
+    }
+    state["finalization"] = {
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "last_validation_findings": [],
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    summary_json = json_out(
+        run(
+            "summary",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--format",
+            "json",
+        )
+    )
+    warnings = summary_json.get("consistency", {}).get("warnings") or []
+    assert_true(
+        not any(w.get("code") == "delivery_artifact_handoff_failed" for w in warnings),
+        "legacy states without candidate_artifact_inspection should not get a handoff mismatch warning",
+    )
+
+
 def test_consistency_warning_active_lock_in_terminal_state(root: Path) -> None:
     created = json_out(
         run(

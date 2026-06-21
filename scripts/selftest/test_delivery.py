@@ -641,6 +641,57 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     )
 
 
+def test_worker_final_uses_pdf_candidate_as_delivery_primary(root: Path) -> None:
+    task_id = "pdf-primary-candidate"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a PDF report with supporting Markdown.",
+            "--deliverable",
+            "review-ready PDF report",
+        )
+    )
+    task_dir = root / task_id
+    pdf_path = task_dir / "reports" / "final.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.4\n% review-ready pdf fixture\n")
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "path": "reports/final.pdf",
+                "kind": "pdf_report",
+                "note": "Review-ready PDF report.",
+            }
+        ],
+        "validation_evidence": [
+            {"kind": "pdf_review", "summary": "Checked the generated PDF exists."}
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+    assert_eq(finished.get("status"), "awaiting_review", "PDF candidate should reach review")
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    delivery = state.get("delivery") or {}
+    assert_eq(
+        delivery.get("primary_file"),
+        str(pdf_path),
+        "delivery.primary_file should point to the validated PDF artifact",
+    )
+    assert_eq(
+        state.get("artifacts", {}).get("final_report_path"),
+        str(task_dir / "final-report.md"),
+        "supporting Markdown report can still be materialized separately",
+    )
+
+
 def test_worker_final_rejects_xlsx_table_autofilter_conflict(root: Path) -> None:
     task_id = "xlsx-filter-conflict"
     json_out(
@@ -881,6 +932,11 @@ def test_mark_delivered_command(root: Path) -> None:
         "primary_file should be set (resolved to absolute path)",
     )
     assert_eq(
+        result.get("primary_file"),
+        str(reports_dir / "final.pdf"),
+        "primary_file should be persisted as an absolute task-local path",
+    )
+    assert_eq(
         result.get("summary_text"),
         "Analysis complete. PDF attached.",
         "summary_text should be set",
@@ -934,6 +990,11 @@ def test_mark_delivered_succeeds_with_valid_relative_primary_file(root: Path) ->
     assert_true(
         result.get("primary_file"),
         "primary_file should be set with resolved absolute path",
+    )
+    assert_eq(
+        result.get("primary_file"),
+        str(final_pdf),
+        "relative primary_file input should be normalized to an absolute path",
     )
 
 

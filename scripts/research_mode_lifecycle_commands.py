@@ -20,6 +20,7 @@ from research_mode_lifecycle_helpers import (
     validate_candidate_final,
     validate_completion,
 )
+from research_mode_finalization import expected_formats_for_primary_kind
 from research_mode_adequacy import (
     build_adequacy_operator_next_action,
     collect_adequacy_reasons,
@@ -66,6 +67,7 @@ from research_mode_utils import (
     pending_result_path,
     parse_ts,
     read_json,
+    resolve_under_task,
     utc_now,
 )
 
@@ -166,6 +168,49 @@ def _package_delivery_from_validation(
                     "primary_file": entrypoint_path,
                     "attachments": artifact.get("attachments") or [],
                 }
+    return None
+
+
+def _primary_file_from_validation(
+    task: ResearchTask,
+    validation_result: dict[str, Any] | None,
+) -> str | None:
+    if not validation_result or not validation_result.get("passed"):
+        return None
+
+    primary_kind = ""
+    inspected_artifacts: list[dict[str, Any]] = []
+    for finding in validation_result.get("findings") or []:
+        if finding.get("check") == "finalization_trace":
+            primary_kind = str(finding.get("primary_deliverable_kind") or "")
+        elif finding.get("check") == "candidate_artifact_inspection":
+            inspected_artifacts = list(finding.get("artifacts") or [])
+
+    expected_formats = expected_formats_for_primary_kind(primary_kind)
+    if not expected_formats:
+        return None
+
+    for artifact in inspected_artifacts:
+        if artifact.get("reasons"):
+            continue
+        artifact_format = str(artifact.get("format") or "").strip().lower()
+        if artifact_format not in expected_formats:
+            continue
+        if artifact_format == "package":
+            entrypoint_path = artifact.get("entrypoint_path")
+            return str(entrypoint_path) if entrypoint_path else None
+        artifact_path = artifact.get("path")
+        if not artifact_path:
+            continue
+        if artifact.get("source") == "final_report_markdown":
+            return str(task.final_report_path)
+        return str(
+            resolve_under_task(
+                task.task_dir,
+                str(artifact_path),
+                label="primary artifact",
+            )
+        )
     return None
 
 
@@ -1062,7 +1107,12 @@ def _finish_iteration_impl(
                             )
                             saved_report_path = str(task.final_report_path)
                             state["artifacts"]["final_report_path"] = saved_report_path
-                            state["delivery"]["primary_file"] = saved_report_path
+                            state["delivery"]["primary_file"] = (
+                                _primary_file_from_validation(
+                                    task, finalization_validation
+                                )
+                                or saved_report_path
+                            )
                         finalization_state["status"] = "passed"
                         state["delivery"]["review_ready"] = True
                         state["delivery"]["ready"] = False

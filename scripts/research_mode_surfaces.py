@@ -6,7 +6,10 @@ from typing import Any
 
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
-from research_mode_finalization import build_finalization_surface
+from research_mode_finalization import (
+    build_finalization_surface,
+    expected_formats_for_primary_kind,
+)
 from research_mode_task import ResearchTask
 from research_mode_utils import (
     ValidationError,
@@ -16,6 +19,7 @@ from research_mode_utils import (
     read_json,
     read_jsonl,
     read_tsv_rows,
+    resolve_under_task,
     scheduled_worker_timeout_seconds,
 )
 
@@ -44,6 +48,14 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not consider deliverable delivered until primary_file is confirmed",
     },
+    "delivery_artifact_handoff_failed": {
+        "checklist": [
+            "Check finalization.primary_deliverable_kind",
+            "Check candidate_artifact_inspection artifacts",
+            "Verify delivery.primary_file points to the validated primary artifact",
+        ],
+        "note": "Do not review or deliver until delivery.primary_file matches the validated primary artifact",
+    },
     "active_lock_in_terminal_state": {
         "checklist": [
             "Check lock.run_id and its age",
@@ -55,6 +67,61 @@ WARNING_GUIDANCE = {
 }
 
 
+def _resolve_state_task_path(state: dict[str, Any], path_value: Any) -> Path | None:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if path.is_absolute():
+        return path
+    task_dir = (state.get("artifacts") or {}).get("task_dir")
+    if not task_dir:
+        return path
+    try:
+        return resolve_under_task(Path(task_dir), path_text, label="state path")
+    except ValidationError:
+        return None
+
+
+def _matching_validated_artifact(
+    state: dict[str, Any],
+    primary_file: Any,
+) -> dict[str, Any] | None:
+    primary_path = _resolve_state_task_path(state, primary_file)
+    task_dir = (state.get("artifacts") or {}).get("task_dir")
+    if primary_path is None or not task_dir:
+        return None
+    primary_resolved = primary_path.resolve()
+    for finding in (state.get("finalization") or {}).get("last_validation_findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            if artifact.get("reasons"):
+                continue
+            if artifact.get("format") == "package":
+                artifact_path = artifact.get("entrypoint_path")
+            elif artifact.get("source") == "final_report_markdown":
+                artifact_path = (state.get("artifacts") or {}).get("final_report_path")
+            else:
+                artifact_path = artifact.get("path")
+            candidate_path = _resolve_state_task_path(
+                state,
+                artifact_path,
+            )
+            if candidate_path is None:
+                continue
+            if candidate_path.resolve() == primary_resolved:
+                return artifact
+    return None
+
+
+def _has_candidate_artifact_inspection(state: dict[str, Any]) -> bool:
+    return any(
+        finding.get("check") == "candidate_artifact_inspection"
+        for finding in (state.get("finalization") or {}).get("last_validation_findings") or []
+    )
+
+
 def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
     warnings: list[dict[str, Any]] = []
     status = state.get("status")
@@ -63,6 +130,7 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
     lock = state.get("lock") or {}
     artifacts = state.get("artifacts") or {}
     final_report_path = artifacts.get("final_report_path")
+    finalization = state.get("finalization") or {}
 
     if status == "awaiting_review" and review.get("status") == "changes_requested":
         warnings.append(
@@ -91,11 +159,11 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     if status == "awaiting_review":
-        final_report_exists = (
-            bool(final_report_path) and Path(final_report_path).exists()
-        )
+        final_report_resolved = _resolve_state_task_path(state, final_report_path)
+        final_report_exists = bool(final_report_resolved) and final_report_resolved.exists()
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_resolved = _resolve_state_task_path(state, primary_file)
+        primary_exists = bool(primary_resolved) and primary_resolved.exists()
         if not final_report_exists and not primary_exists:
             warnings.append(
                 {
@@ -110,13 +178,40 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
 
     if delivery.get("ready"):
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_resolved = _resolve_state_task_path(state, primary_file)
+        primary_exists = bool(primary_resolved) and primary_resolved.exists()
         if not primary_exists:
             warnings.append(
                 {
                     "code": "delivery_ready_but_missing_primary",
                     "message": "delivery.ready=true but primary_file is missing or invalid",
                     "details": {
+                        "primary_file": primary_file,
+                    },
+                }
+            )
+
+    primary_kind = str(finalization.get("primary_deliverable_kind") or "").strip()
+    expected_formats = expected_formats_for_primary_kind(primary_kind)
+    primary_file = delivery.get("primary_file")
+    primary_resolved = _resolve_state_task_path(state, primary_file)
+    if (
+        expected_formats
+        and primary_resolved
+        and primary_resolved.exists()
+        and _has_candidate_artifact_inspection(state)
+    ):
+        artifact = _matching_validated_artifact(state, primary_file)
+        actual_format = str((artifact or {}).get("format") or "").strip().lower()
+        if not artifact or actual_format not in expected_formats:
+            warnings.append(
+                {
+                    "code": "delivery_artifact_handoff_failed",
+                    "message": "delivery.primary_file does not match the validated primary deliverable format",
+                    "details": {
+                        "primary_deliverable_kind": primary_kind,
+                        "expected_formats": sorted(expected_formats),
+                        "actual_format": actual_format or None,
                         "primary_file": primary_file,
                     },
                 }

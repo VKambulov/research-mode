@@ -1214,18 +1214,25 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
         state_for_check = task.read_state()
         existing_primary = state_for_check.get("delivery", {}).get("primary_file")
         primary_for_ready = validated_primary or existing_primary
+        validated_existing_primary = None
         if not primary_for_ready:
             raise ValidationError(
                 "cannot set delivery.ready=true without a valid primary_file; "
                 "specify --primary-file or ensure one already exists in delivery state"
             )
         if validated_primary is None and existing_primary:
-            _validate_primary_file_path(existing_primary, task)
+            validated_existing_primary = _validate_primary_file_path(
+                existing_primary, task
+            )
+    else:
+        validated_existing_primary = None
 
     with manager.editor() as state:
         delivery = state.setdefault("delivery", {})
         if explicit_primary_file is not None:
-            delivery["primary_file"] = str(explicit_primary_file).strip()
+            delivery["primary_file"] = validated_primary
+        elif validated_existing_primary is not None:
+            delivery["primary_file"] = validated_existing_primary
         if getattr(args, "summary_text", None) is not None:
             delivery["summary_text"] = str(args.summary_text).strip()
         if getattr(args, "channel_strategy", None) is not None:

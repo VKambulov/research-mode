@@ -37,6 +37,22 @@ RAW_FINAL_ARTIFACT_SIGNALS = [
 
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
+PRIMARY_KIND_FORMATS = {
+    "markdown_report": {"markdown"},
+    "markdown": {"markdown"},
+    "pdf_report": {"pdf"},
+    "pdf": {"pdf"},
+    "spreadsheet": {"xlsx"},
+    "xlsx": {"xlsx"},
+    "package": {"package"},
+}
+
+
+def expected_formats_for_primary_kind(primary_kind: str | None) -> set[str]:
+    normalized = str(primary_kind or "").strip().lower()
+    if not normalized:
+        return set()
+    return set(PRIMARY_KIND_FORMATS.get(normalized, {normalized}))
 
 
 def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
