@@ -6,6 +6,8 @@ from pathlib import Path
 from .helpers import assert_eq, assert_in, assert_true
 
 from research_mode_surface_delivery import (
+    DELIVERY_NOTIFICATION_ERROR,
+    classify_delivery_error,
     format_for_channel,
     get_channel_limits,
     get_channel_profile,
@@ -13,6 +15,14 @@ from research_mode_surface_delivery import (
     split_for_channel,
     suggest_channel_strategy,
 )
+
+
+def test_delivery_error_text_does_not_infer_addressing_failure(root: Path) -> None:
+    assert_eq(
+        classify_delivery_error("thread timeout while sending"),
+        DELIVERY_NOTIFICATION_ERROR,
+        "provider error text should not infer addressing failure",
+    )
 
 
 def test_format_delivery_telegram_short(root: Path) -> None:
@@ -114,18 +124,19 @@ def test_split_for_channel_no_limit(root: Path) -> None:
     assert_eq(len(chunks), 1, "email should not split")
 
 
-def test_suggest_channel_strategy_memo(root: Path) -> None:
-    """Short deliverable types should suggest summary_first."""
-    assert_eq(suggest_channel_strategy("short memo"), "summary_first", "memo -> summary_first")
-    assert_eq(suggest_channel_strategy("brief overview"), "summary_first", "brief -> summary_first")
-    assert_eq(suggest_channel_strategy("краткая записка"), "summary_first", "записка -> summary_first")
-
-
-def test_suggest_channel_strategy_report(root: Path) -> None:
-    """Long deliverable types should suggest file_first."""
+def test_suggest_channel_strategy_does_not_parse_deliverable_text(root: Path) -> None:
+    """Free-text deliverable descriptions should not choose delivery strategy."""
+    assert_eq(
+        suggest_channel_strategy("short memo"),
+        "file_first",
+        "free text should not imply summary_first",
+    )
+    assert_eq(
+        suggest_channel_strategy("краткая записка"),
+        "file_first",
+        "localized free text should not imply summary_first",
+    )
     assert_eq(suggest_channel_strategy("full report"), "file_first", "report -> file_first")
-    assert_eq(suggest_channel_strategy("detailed analysis"), "file_first", "analysis -> file_first")
-    assert_eq(suggest_channel_strategy("сравнительный документ"), "file_first", "документ -> file_first")
 
 
 def test_suggest_channel_strategy_none(root: Path) -> None:

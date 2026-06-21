@@ -87,19 +87,6 @@ def classify_delivery_error(error: str | None) -> str | None:
     text = str(error or "").strip().lower()
     if not text:
         return None
-    addressing_markers = (
-        "invalid rootid",
-        "invalid root id",
-        "rootid",
-        "root id",
-        "thread",
-        "topic",
-        "channel",
-        "target",
-        "address",
-    )
-    if any(marker in text for marker in addressing_markers):
-        return DELIVERY_CHANNEL_ADDRESSING_ERROR
     return DELIVERY_NOTIFICATION_ERROR
 
 
@@ -225,20 +212,4 @@ def format_for_channel(
 
 
 def suggest_channel_strategy(deliverable_type: str | None) -> str:
-    if deliverable_type is None:
-        return "file_first"
-
-    dt_lower = str(deliverable_type).lower()
-
-    short_formats = ["memo", "brief", "summary", "записка", "кратко"]
-    long_formats = ["report", "отчёт", "analysis", "документ", "comparison"]
-
-    for short in short_formats:
-        if short in dt_lower:
-            return "summary_first"
-
-    for long in long_formats:
-        if long in dt_lower:
-            return "file_first"
-
     return "file_first"

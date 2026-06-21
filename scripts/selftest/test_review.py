@@ -1269,6 +1269,52 @@ def test_record_notification_failed_surfaces_delivery_channel_diagnostic(root: P
     )
 
 
+def test_record_notification_error_text_does_not_infer_addressing(root: Path) -> None:
+    task_id = "awaiting-review-delivery-generic-failed"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent with opaque provider failure",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    intent = finished.get("delivery_intent") or {}
+
+    recorded = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "failed",
+            "--error",
+            "thread timeout while sending",
+        )
+    )
+
+    assert_eq(
+        recorded.get("error_code"),
+        "delivery_notification_failed",
+        "provider text must not infer addressing without explicit error code",
+    )
+
+
 def test_create_owner_thread_topic_flow_into_delivery_intent(root: Path) -> None:
     task_id = "awaiting-review-thread-topic-intent"
     json_out(
