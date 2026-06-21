@@ -434,7 +434,7 @@ def render_default_final_report(
             note = source.get("note")
             quality = compute_source_quality_score(source)
             qbadge = (
-                {"authoritative": "●●", "standard": "●○", "weak": "○○", "poor": "··"}
+                {"strong": "●●", "standard": "●○", "weak": "○○", "poor": "··"}
             ).get(quality["tier"], "??")
             bullet = f"- [{qbadge}] " + (f"[{title}]({url})" if url else title)
             if quality["factors"]:
@@ -1187,7 +1187,7 @@ def compute_source_quality_score(source: dict[str, Any]) -> dict[str, Any]:
 
     tier: str
     if quality_score >= 0.75:
-        tier = "authoritative"
+        tier = "strong"
     elif quality_score >= 0.55:
         tier = "standard"
     elif quality_score >= 0.35:

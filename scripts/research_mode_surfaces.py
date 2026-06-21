@@ -1537,7 +1537,7 @@ def render_synthesis_markdown(synthesis: dict[str, Any]) -> str:
         for source in sources:
             quality = source.get("quality") or {}
             qbadge_map = {
-                "authoritative": "●●",
+                "strong": "●●",
                 "standard": "●○",
                 "weak": "○○",
                 "poor": "··",
