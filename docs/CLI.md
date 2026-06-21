@@ -81,6 +81,16 @@ operators can perform one bounded iteration safely.
 - `--deliverable` remains free-text guidance for the worker and surfaces.
   `--deliverable-kind` / `set-deliverable --kind` set the structured
   `working_memory.output_contract.kind` enum used by validation.
+- Optional `working_memory.output_contract.quality_checks` enables structured
+  checks such as `bullet_list`, `minimum_length`, and `comparative_matrix`.
+  These checks are not inferred from the free-text deliverable.
+- Optional `working_memory.search_profile` or
+  `working_memory.output_contract.search_profile` controls search-routing
+  guidance. Locale, region, and discovery mode are explicit fields, not
+  keyword-detected from the goal.
+- Finalization candidate artifacts should set `visibility` and `role`; internal
+  artifacts belong in `internal_artifacts`, not in reviewable
+  `candidate_artifacts`.
 
 ### Normal Completion Path
 
@@ -185,6 +195,16 @@ OpenClaw запустить или проверить Research Mode из чат�
 - `--deliverable` остаётся свободным текстом для guidance worker-а и surfaces.
   `--deliverable-kind` / `set-deliverable --kind` задают структурный enum
   `working_memory.output_contract.kind`, который использует validation.
+- Optional `working_memory.output_contract.quality_checks` включает структурные
+  проверки вроде `bullet_list`, `minimum_length` и `comparative_matrix`. Эти
+  проверки не выводятся из свободного текста deliverable.
+- Optional `working_memory.search_profile` или
+  `working_memory.output_contract.search_profile` управляет search-routing
+  guidance. Locale, region и discovery mode задаются явными полями, а не
+  keyword-detection по goal.
+- Candidate artifacts в finalization должны задавать `visibility` и `role`;
+  internal artifacts должны попадать в `internal_artifacts`, а не в reviewable
+  `candidate_artifacts`.
 
 ### Нормальный путь завершения
 

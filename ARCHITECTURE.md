@@ -221,11 +221,12 @@ This makes the next action explicit instead of requiring the operator to infer
 intent from raw JSON.
 
 Finalization can also record an optional `deliverable_decision` with
-`selected_kind`, `desired_kind`, and `feasible_kind`. This keeps the default
-user-facing format decision separate from what the worker has actually produced.
-For example, a long narrative report delivered in a chat/thread may infer
-`pdf_report`; Markdown remains a source or feasible intermediate until the
-desired artifact exists or Markdown was explicitly requested.
+`selected_kind`, `desired_kind`, and `feasible_kind`. This keeps the structured
+user-facing format contract separate from what the worker has actually produced.
+The desired kind comes from `working_memory.output_contract.kind` or a canonical
+`finalization.primary_deliverable_kind`, not from natural-language deliverable
+text, channel context, or report prose. Inspected artifact format is used only
+as the feasible kind when no explicit desired kind exists.
 
 ## Reliability Diagnostics
 
@@ -515,11 +516,13 @@ flowchart TD
 Оператор видит следующий шаг явно, а не реконструирует намерение по сырому JSON.
 
 Финальная проверка также может записывать optional `deliverable_decision` с
-`selected_kind`, `desired_kind` и `feasible_kind`. Так решение о пользовательском
-формате отделено от того, что worker фактически подготовил. Например, длинный
-отчёт для chat/thread доставки может выбрать `pdf_report`; Markdown остаётся
-исходником или фактически доступным промежуточным вариантом, пока не создан
-желаемый артефакт или Markdown не был явно запрошен.
+`selected_kind`, `desired_kind` и `feasible_kind`. Так структурный контракт
+пользовательского формата отделён от того, что worker фактически подготовил.
+Желаемый формат берётся из `working_memory.output_contract.kind` или
+канонического `finalization.primary_deliverable_kind`, а не из свободного текста
+deliverable, channel context или prose отчёта. Проверенный формат артефакта
+используется только как фактически доступный формат, если явного желаемого
+формата нет.
 
 ## Reliability diagnostics
 

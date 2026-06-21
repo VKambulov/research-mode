@@ -266,17 +266,23 @@ Safe action:
 - use `request-changes` for worker rework, or `mark-delivered --primary-file ...`
   only after the correct primary file exists and has been reviewed.
 
-### `default_deliverable_format_mismatch`
+### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
 
 Meaning:
 
-- the user did not request a specific format, so finalization inferred a better
-  user-facing format than the artifact the worker produced; for example a long
-  narrative report destined for a chat/thread inferred `pdf_report`, while the
-  worker only produced Markdown.
+- the structured desired format and the inspected candidate artifact format do
+  not match;
+- `output_contract_format_mismatch` means
+  `working_memory.output_contract.kind` requested one format, but the worker
+  produced another;
+- `declared_deliverable_format_mismatch` means
+  `finalization.primary_deliverable_kind` declared one canonical format, but the
+  candidate artifact is another.
 
 Checks:
 
+- `working_memory.output_contract.kind`;
+- `finalization.primary_deliverable_kind`;
 - `finalization.deliverable_decision.selected_kind`;
 - `finalization.deliverable_decision.desired_kind`;
 - `finalization.deliverable_decision.feasible_kind`;
@@ -284,9 +290,23 @@ Checks:
 
 Safe action:
 
-- ask the worker to produce the desired user-facing artifact, or explicitly
-  request Markdown if Markdown is truly the intended final format;
+- ask the worker to produce the structured desired user-facing artifact, or
+  update the explicit output contract/declaration if the requested format was
+  wrong;
 - do not mark delivery ready while `desired_kind` and `feasible_kind` disagree.
+
+### `default_deliverable_format_mismatch` (legacy)
+
+Meaning:
+
+- historical states may still contain this reason from older builds that inferred
+  a default desired format from natural-language context.
+
+Safe action:
+
+- treat it like a structured format mismatch: inspect
+  `finalization.deliverable_decision`, then either produce the desired artifact
+  or update the explicit output contract.
 
 ### `delivery_ready_but_missing_primary`
 
@@ -742,17 +762,23 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
   `mark-delivered --primary-file ...` только после проверки корректного primary
   file.
 
-### `default_deliverable_format_mismatch`
+### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
 
 Значение:
 
-- пользователь не запросил конкретный формат, поэтому finalization вывела более
-  удобный пользовательский формат, чем артефакт, который подготовил worker;
-  например длинный отчёт для chat/thread доставки получил желаемый
-  `pdf_report`, а worker подготовил только Markdown.
+- структурный желаемый формат и фактически проверенный формат candidate artifact
+  не совпадают;
+- `output_contract_format_mismatch` означает, что
+  `working_memory.output_contract.kind` запросил один формат, а worker создал
+  другой;
+- `declared_deliverable_format_mismatch` означает, что
+  `finalization.primary_deliverable_kind` заявил один канонический формат, а
+  candidate artifact имеет другой.
 
 Проверки:
 
+- `working_memory.output_contract.kind`;
+- `finalization.primary_deliverable_kind`;
 - `finalization.deliverable_decision.selected_kind`;
 - `finalization.deliverable_decision.desired_kind`;
 - `finalization.deliverable_decision.feasible_kind`;
@@ -760,10 +786,23 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 
 Безопасное действие:
 
-- попросить worker-а подготовить желаемый пользовательский артефакт или явно
-  запросить Markdown, если именно Markdown должен быть финальным форматом;
+- попросить worker-а подготовить структурно запрошенный пользовательский артефакт
+  или исправить explicit output contract/declaration, если запрос был ошибочным;
 - не помечать доставку готовой, пока `desired_kind` и `feasible_kind`
   расходятся.
+
+### `default_deliverable_format_mismatch` (legacy)
+
+Значение:
+
+- старые states могут всё ещё содержать этот reason от версий, где default
+  desired format выводился из natural-language context.
+
+Безопасное действие:
+
+- обрабатывать как структурное несовпадение формата: проверить
+  `finalization.deliverable_decision`, затем либо создать желаемый артефакт, либо
+  исправить explicit output contract.
 
 ### `delivery_ready_but_missing_primary`
 

@@ -112,8 +112,8 @@ Roadmap ниже описывает публичное направление Gi
   могли видеть stale active run и понятное действие для восстановления.
 - Добавлена начальная линия stability diagnostics: reliability counters,
   detection повторяющихся completion-validation loops, структурная проверка
-  сравнительных результатов, delivery handoff/channel diagnostics, default
-  deliverable format decisions, queue mismatch findings и deterministic
+  сравнительных результатов, delivery handoff/channel diagnostics,
+  contract-driven deliverable format decisions, queue mismatch findings и deterministic
   reliability soak coverage.
 - Публичный статус проекта уточнён: текущий приоритет — стабильность,
   наблюдаемость и восстановимость исследований.
