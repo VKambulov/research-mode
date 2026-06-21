@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
 from research_mode_utils import ValidationError, is_relative_to, resolve_under_task
 
 
@@ -37,89 +38,13 @@ RAW_FINAL_ARTIFACT_SIGNALS = [
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
 EXPECTED_FORMATS_BY_PRIMARY_KIND = {
-    "markdown": {"markdown"},
     "markdown_report": {"markdown"},
-    "md_report": {"markdown"},
-    "pdf": {"pdf"},
     "pdf_report": {"pdf"},
-    "docx": {"docx"},
     "docx_report": {"docx"},
-    "html": {"html", "htm"},
     "html_report": {"html", "htm"},
-    "spreadsheet": {"xlsx"},
     "xlsx": {"xlsx"},
-    "xlsx_report": {"xlsx"},
     "csv": {"csv"},
-    "csv_export": {"csv"},
     "package": {"package"},
-}
-
-FORMAT_ALIASES = {
-    "markdown_report": (
-        "markdown",
-        "md",
-        "markdown report",
-        "md report",
-        "маркдаун",
-        "markdown-отчет",
-        "markdown-отчёт",
-        "md-отчет",
-        "md-отчёт",
-    ),
-    "pdf_report": (
-        "pdf",
-        "pdf report",
-        "pdf-отчет",
-        "pdf-отчёт",
-        "пдф",
-    ),
-    "docx_report": (
-        "docx",
-        "word",
-        "docx report",
-        "word document",
-        "документ word",
-        "ворд",
-    ),
-    "xlsx": (
-        "xlsx",
-        "spreadsheet",
-        "excel",
-        "workbook",
-        "таблица",
-        "таблицу",
-        "табличный",
-        "эксель",
-    ),
-    "csv": (
-        "csv",
-        "csv export",
-    ),
-    "html_report": (
-        "html",
-        "interactive",
-        "web page",
-        "интерактив",
-        "веб-страница",
-    ),
-    "package": (
-        "package",
-        "zip",
-        "bundle",
-        "пакет",
-        "архив",
-    ),
-}
-
-PRIMARY_KIND_NORMALIZATION = {
-    "markdown": "markdown_report",
-    "md_report": "markdown_report",
-    "pdf": "pdf_report",
-    "docx": "docx_report",
-    "html": "html_report",
-    "spreadsheet": "xlsx",
-    "xlsx_report": "xlsx",
-    "csv_export": "csv",
 }
 
 
@@ -147,29 +72,13 @@ def _format_mismatch_reasons(
     return ["primary_deliverable_format_mismatch"]
 
 
-def _normalize_deliverable_kind(kind: str | None) -> str | None:
+def _canonical_deliverable_kind(kind: str | None) -> str | None:
     cleaned = str(kind or "").strip().lower()
     if not cleaned:
         return None
-    return PRIMARY_KIND_NORMALIZATION.get(cleaned, cleaned)
-
-
-def _explicit_user_format_kind(deliverable_desc: str) -> str | None:
-    text = f" {str(deliverable_desc or '').lower()} "
-    matches: list[tuple[int, int, str]] = []
-    for kind, aliases in FORMAT_ALIASES.items():
-        for alias in aliases:
-            padded_alias = f" {alias} "
-            index = text.find(padded_alias)
-            if index < 0:
-                index = text.find(alias)
-            if index >= 0:
-                matches.append((index, len(alias), kind))
-                break
-    if not matches:
-        return None
-    _index, _length, kind = min(matches, key=lambda item: (item[0], -item[1]))
-    return kind
+    if cleaned in CANONICAL_DELIVERABLE_KINDS:
+        return cleaned
+    return None
 
 
 def _format_to_deliverable_kind(artifact_format: str) -> str | None:
@@ -215,118 +124,51 @@ def build_deliverable_format_decision(
 ) -> dict[str, Any]:
     trace = finalization or {}
     working_memory = state.get("working_memory") or {}
-    deliverable_desc = str(working_memory.get("deliverable") or "")
-    explicit_kind = _explicit_user_format_kind(deliverable_desc)
-    primary_kind = _normalize_deliverable_kind(trace.get("primary_deliverable_kind"))
+    output_contract = working_memory.get("output_contract") or {}
+    contract_kind = _canonical_deliverable_kind(output_contract.get("kind"))
+    declared_raw = str(trace.get("primary_deliverable_kind") or "").strip().lower()
+    primary_kind = _canonical_deliverable_kind(declared_raw)
     feasible_kind = _artifact_format_kind(
         artifact_check,
-        preferred_primary_kind=primary_kind,
+        preferred_primary_kind=contract_kind or primary_kind,
     )
     if not feasible_kind and str(report_markdown or "").strip():
         feasible_kind = "markdown_report"
 
-    context_blob = "\n".join(
-        str(item or "")
-        for item in (
-            deliverable_desc,
-            trace.get("inferred_user_need"),
-            trace.get("intended_recipient"),
-            state.get("goal"),
-            state.get("title"),
-        )
-    ).lower()
-    source = "explicit" if explicit_kind else "declared" if primary_kind else "inferred"
-    selected_kind = explicit_kind or primary_kind or feasible_kind
-    if explicit_kind:
-        reason = "User explicitly requested this deliverable format."
-    elif primary_kind:
-        reason = "Worker declared this primary deliverable kind."
-    else:
-        reason = "Worker-provided artifact format is already suitable."
     alternatives: list[str] = []
-
-    if not explicit_kind:
-        chat_thread = any(
-            marker in context_blob
-            for marker in (
-                "chat",
-                "thread",
-                "mattermost",
-                "telegram",
-                "topic",
-                "чат",
-                "тред",
-                "топик",
-                "канал",
-            )
-        )
-        narrative_report = any(
-            marker in context_blob
-            for marker in (
-                "long narrative",
-                "long report",
-                "narrative report",
-                "report",
-                "отчет",
-                "отчёт",
-                "исследование",
-            )
-        )
-        tabular = any(
-            marker in context_blob
-            for marker in (
-                "tabular",
-                "dataset",
-                "spreadsheet",
-                "xlsx",
-                "csv",
-                "таблица",
-                "таблич",
-                "датасет",
-            )
-        )
-        interactive = any(
-            marker in context_blob
-            for marker in ("interactive", "dashboard", "html", "интерактив", "дашборд")
-        )
-        bundle = any(
-            marker in context_blob
-            for marker in ("package", "bundle", "zip", "пакет", "архив")
-        )
-
-        if bundle:
-            source = "inferred"
-            selected_kind = "package"
-            reason = "Multi-file or bundled output is easier to review as a package."
-            alternatives = ["markdown_report", "zip"]
-        elif interactive:
-            source = "inferred"
-            selected_kind = "html_report"
-            reason = "Interactive or visual output is easier to review as HTML."
-            alternatives = ["pdf_report", "markdown_report"]
-        elif tabular and feasible_kind == "markdown_report":
-            source = "inferred"
-            selected_kind = "xlsx"
-            reason = "Tabular data is easier to inspect as a spreadsheet or CSV."
-            alternatives = ["csv", "markdown_report"]
-        elif chat_thread and narrative_report and feasible_kind == "markdown_report":
-            source = "inferred"
-            selected_kind = "pdf_report"
-            reason = "Long narrative report delivered in a chat/thread is easier to review as PDF."
-            alternatives = ["markdown_report", "docx_report"]
-
-    if selected_kind is None:
-        selected_kind = feasible_kind or "markdown_report"
-    if feasible_kind is None:
-        feasible_kind = selected_kind
+    unsupported_primary_kind = bool(declared_raw and primary_kind is None)
+    if contract_kind:
+        selected_kind = contract_kind
+        desired_kind = contract_kind
+        source = "contract"
+        reason = "Structured output contract requested this deliverable kind."
+    elif primary_kind:
+        selected_kind = primary_kind
+        desired_kind = primary_kind
+        source = "declared"
+        reason = "Worker declared this primary deliverable kind."
+    elif feasible_kind:
+        selected_kind = feasible_kind
+        desired_kind = feasible_kind
+        source = "artifact"
+        reason = "Inspected artifact format selected the feasible deliverable kind."
+    else:
+        selected_kind = "unknown"
+        desired_kind = "unknown"
+        feasible_kind = "unknown"
+        source = "unknown"
+        reason = "No structured output contract, declared kind, or artifact format is available."
 
     return {
         "selected_kind": selected_kind,
-        "desired_kind": selected_kind,
+        "desired_kind": desired_kind,
         "feasible_kind": feasible_kind,
         "reason": reason,
         "source": source,
         "alternatives_considered": alternatives,
+        "unsupported_primary_deliverable_kind": (
+            declared_raw if unsupported_primary_kind else None
+        ),
     }
 
 
@@ -346,13 +188,13 @@ def check_deliverable_format_decision(
     desired_kind = decision.get("desired_kind")
     feasible_kind = decision.get("feasible_kind")
     reasons: list[str] = []
+    if decision.get("unsupported_primary_deliverable_kind"):
+        reasons.append("unsupported_primary_deliverable_kind")
     if desired_kind != feasible_kind:
-        if decision.get("source") == "explicit":
-            reasons.append("explicit_deliverable_format_mismatch")
+        if decision.get("source") == "contract":
+            reasons.append("output_contract_format_mismatch")
         elif decision.get("source") == "declared":
-            reasons.append("primary_deliverable_format_mismatch")
-        else:
-            reasons.append("default_deliverable_format_mismatch")
+            reasons.append("declared_deliverable_format_mismatch")
     return {
         "check": "deliverable_format_decision",
         "passed": not reasons,

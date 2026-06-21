@@ -355,7 +355,7 @@ def test_worker_final_rejects_raw_artifact_exposed_as_final(root: Path) -> None:
     lease = json_out(run("begin", "--root", str(root), "--id", "raw-artifact-final"))
     raw_finalization = {
         **_HUMAN_READY_FINALIZATION,
-        "primary_deliverable_kind": "spreadsheet",
+        "primary_deliverable_kind": "xlsx",
         "candidate_artifacts": [
             {
                 "path": "workspace/outputs/client_check_raw.xlsx",
@@ -652,7 +652,7 @@ def test_worker_final_rejects_pdf_kind_with_markdown_candidate(root: Path) -> No
         "declared primary kind should be distinguished from inferred defaults",
     )
     assert_in(
-        "primary_deliverable_format_mismatch",
+        "declared_deliverable_format_mismatch",
         decision_finding.get("reasons") or [],
         "format decision should carry the declared/actual mismatch reason",
     )
@@ -796,8 +796,8 @@ def test_worker_final_tolerates_string_deliverable_decision_note(root: Path) -> 
     )
 
 
-def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(root: Path) -> None:
-    task_id = "inferred-pdf-chat-report"
+def test_worker_final_does_not_infer_pdf_for_long_chat_report(root: Path) -> None:
+    task_id = "no-inferred-pdf-chat-report"
     json_out(
         run(
             "create",
@@ -829,14 +829,8 @@ def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(ro
 
     assert_eq(
         finished.get("status"),
-        "finalize",
-        "long chat/thread report should not silently become Markdown-only review-ready",
-    )
-    reasons = finished.get("finalization_validation", {}).get("reasons") or []
-    assert_in(
-        "default_deliverable_format_mismatch",
-        reasons,
-        "default format decision mismatch should be explicit",
+        "awaiting_review",
+        "free text alone should not force a PDF artifact before review",
     )
     decision_finding = next(
         (
@@ -848,13 +842,18 @@ def test_worker_final_infers_pdf_for_long_chat_report_without_explicit_format(ro
     )
     assert_eq(
         decision_finding.get("desired_kind"),
-        "pdf_report",
-        "long chat/thread report should infer PDF as desired user-facing format",
+        "markdown_report",
+        "declared Markdown should remain the desired kind",
     )
     assert_eq(
         decision_finding.get("feasible_kind"),
         "markdown_report",
-        "Markdown remains the feasible worker output until a renderer is available",
+        "Markdown remains the feasible worker output",
+    )
+    assert_eq(
+        decision_finding.get("source"),
+        "declared",
+        "free text should not be recorded as an inferred format source",
     )
 
 
@@ -900,8 +899,8 @@ def test_worker_final_preserves_explicit_markdown_format(root: Path) -> None:
     decision = (state.get("finalization") or {}).get("deliverable_decision") or {}
     assert_eq(
         decision.get("source"),
-        "explicit",
-        "format decision should record explicit user format",
+        "declared",
+        "format decision should come from structured finalization kind",
     )
     assert_eq(
         decision.get("selected_kind"),
@@ -920,6 +919,8 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
             "xlsx-candidate-artifact",
             "--goal",
             "XLSX candidate artifact test",
+            "--deliverable-kind",
+            "xlsx",
             "--deliverable",
             "review-ready spreadsheet",
         )
@@ -929,11 +930,11 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     lease = json_out(run("begin", "--root", str(root), "--id", "xlsx-candidate-artifact"))
     finalization = {
         **_HUMAN_READY_FINALIZATION,
-        "primary_deliverable_kind": "spreadsheet",
+        "primary_deliverable_kind": "xlsx",
         "candidate_artifacts": [
             {
                 "path": "reports/final.xlsx",
-                "kind": "spreadsheet",
+                "kind": "xlsx",
                 "note": "Review-ready workbook.",
             }
         ],
@@ -1315,11 +1316,11 @@ def test_worker_final_rejects_xlsx_table_autofilter_conflict(root: Path) -> None
     lease = json_out(run("begin", "--root", str(root), "--id", task_id))
     finalization = {
         **_HUMAN_READY_FINALIZATION,
-        "primary_deliverable_kind": "spreadsheet",
+        "primary_deliverable_kind": "xlsx",
         "candidate_artifacts": [
             {
                 "path": "reports/final.xlsx",
-                "kind": "spreadsheet",
+                "kind": "xlsx",
                 "note": "Review-ready workbook.",
             }
         ],

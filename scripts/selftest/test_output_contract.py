@@ -153,3 +153,88 @@ def test_free_text_remains_available_to_worker_and_surfaces(root: Path) -> None:
         summary_text,
         "summary should still render free-text deliverable",
     )
+
+
+def test_deliverable_free_text_does_not_infer_format_from_language(root: Path) -> None:
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "free-text-no-format-inference",
+            "--goal",
+            "请准备一个详细报告并发送到聊天线程",
+            "--deliverable",
+            "请做一个适合阅读的报告",
+            "--skip-preflight",
+        )
+    )
+    assert_eq(created["status"], "created", "create status")
+
+    from research_mode_finalization import build_deliverable_format_decision
+
+    state = json.loads(
+        (root / "free-text-no-format-inference" / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    decision = build_deliverable_format_decision(
+        state=state,
+        finalization=None,
+        report_markdown="# Report\n\nA short Markdown candidate exists for feasibility only.",
+        artifact_check=None,
+    )
+
+    assert_eq(
+        decision.get("source"),
+        "artifact",
+        "free text must not become an explicit or inferred source",
+    )
+    assert_eq(
+        decision.get("selected_kind"),
+        "markdown_report",
+        "selection should follow feasible artifact only",
+    )
+
+
+def test_explicit_output_contract_kind_controls_format(root: Path) -> None:
+    from research_mode_finalization import check_deliverable_format_decision
+
+    state = {
+        "working_memory": {
+            "deliverable": "任意文本",
+            "output_contract": {"kind": "pdf_report", "quality_checks": []},
+        }
+    }
+    artifact_check = {
+        "check": "candidate_artifact_inspection",
+        "passed": True,
+        "reasons": [],
+        "artifacts": [
+            {"path": "final-report.md", "format": "markdown", "reasons": []}
+        ],
+    }
+
+    result = check_deliverable_format_decision(
+        state=state,
+        finalization={
+            "status": "passed",
+            "primary_deliverable_kind": "markdown_report",
+        },
+        report_markdown="# Report\n\nMarkdown candidate.",
+        artifact_check=artifact_check,
+    )
+
+    assert_eq(result.get("passed"), False, "contract PDF with Markdown artifact should fail")
+    assert_in(
+        "output_contract_format_mismatch",
+        result.get("reasons") or [],
+        "contract mismatch reason",
+    )
+    assert_eq(result.get("desired_kind"), "pdf_report", "contract kind is desired")
+    assert_eq(
+        result.get("feasible_kind"),
+        "markdown_report",
+        "artifact kind is feasible",
+    )

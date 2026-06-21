@@ -17,7 +17,9 @@ def test_format_decision_rework_is_visible_in_health(root: Path) -> None:
             "--id",
             task_id,
             "--goal",
-            "Prepare a long narrative report for a Mattermost thread.",
+            "Prepare a PDF report for review.",
+            "--deliverable-kind",
+            "pdf_report",
             "--skip-preflight",
         )
     )
@@ -28,7 +30,7 @@ def test_format_decision_rework_is_visible_in_health(root: Path) -> None:
     result_file.write_text(
         json.dumps(
             {
-                "summary": "Prepared Markdown, but the user-facing format should be inferred.",
+                "summary": "Prepared Markdown, but the structured contract requires PDF.",
                 "next_angle": "Render the desired user-facing artifact.",
                 "meaningful_progress": True,
                 "phase": "finalize",
@@ -40,19 +42,18 @@ def test_format_decision_rework_is_visible_in_health(root: Path) -> None:
                 "final_report_markdown": (
                     "# Final Report\n\n"
                     "## Summary\n\n"
-                    "This is a long narrative report intended for a chat thread. "
-                    "It is readable Markdown, but it should not be treated as the "
-                    "default final user-facing format when a PDF is more suitable.\n\n"
+                    "This is a readable Markdown report, but the structured "
+                    "output contract requires a PDF before review.\n\n"
                     "## Key Findings\n\n"
                     "- Finding 1: important evidence.\n"
                     "- Finding 2: additional evidence.\n\n"
                     "## Conclusion\n\n"
-                    "The report needs the desired user-facing artifact before review."
+                    "The report needs the contracted user-facing artifact before review."
                 ),
                 "finalization": {
                     "status": "passed",
-                    "inferred_user_need": "Long narrative report delivered in a chat thread.",
-                    "intended_recipient": "Mattermost thread",
+                    "inferred_user_need": "PDF report for review.",
+                    "intended_recipient": "operator",
                     "primary_deliverable_kind": "markdown_report",
                     "internal_artifacts": [],
                     "candidate_artifacts": [
@@ -99,7 +100,7 @@ def test_format_decision_rework_is_visible_in_health(root: Path) -> None:
     health = json_out(run("health", "--root", str(root), "--id", task_id))
     assert_true(
         any(
-            finding.get("code") == "default_deliverable_format_mismatch"
+            finding.get("code") == "output_contract_format_mismatch"
             for finding in health.get("findings") or []
         ),
         "health should expose the format-decision rework reason",
