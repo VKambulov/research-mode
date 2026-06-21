@@ -12,11 +12,11 @@ def test_source_quality_does_not_use_title_or_note_keywords() -> None:
 
     result = compute_source_quality_score(source)
 
-    assert "official_domain" not in result["factors"]
-    assert "authoritative_tag" not in result["factors"]
+    assert result["factors"] == []
+    assert result["quality_score"] == 0.5
 
 
-def test_source_quality_uses_structured_tags_and_domain() -> None:
+def test_source_quality_does_not_infer_authority_from_domain_or_tags() -> None:
     source = {
         "url": "https://agency.gov/report",
         "tags": ["official_source", "primary_source"],
@@ -24,20 +24,20 @@ def test_source_quality_uses_structured_tags_and_domain() -> None:
 
     result = compute_source_quality_score(source)
 
-    assert "official_domain" in result["factors"]
-    assert "authoritative_tag" in result["factors"]
+    assert result["factors"] == []
+    assert result["quality_score"] == 0.5
 
 
-def test_official_source_tag_does_not_claim_official_domain() -> None:
+def test_source_quality_does_not_penalize_hosts_or_tags() -> None:
     source = {
-        "url": "https://example.com/report",
-        "tags": ["official_source"],
+        "url": "https://reddit.com/r/test",
+        "tags": ["user_generated", "stale", "unverified"],
     }
 
     result = compute_source_quality_score(source)
 
-    assert "official_domain" not in result["factors"]
-    assert "authoritative_tag" in result["factors"]
+    assert result["factors"] == []
+    assert result["quality_score"] == 0.5
 
 
 def test_source_quality_ignores_uncontrolled_tag_text() -> None:
@@ -48,4 +48,18 @@ def test_source_quality_ignores_uncontrolled_tag_text() -> None:
 
     result = compute_source_quality_score(source)
 
-    assert "authoritative_tag" not in result["factors"]
+    assert result["factors"] == []
+
+
+def test_source_quality_uses_only_fetch_timestamp() -> None:
+    fresh = compute_source_quality_score({
+        "url": "https://example.com/report",
+        "fetched_at": "2999-01-01T00:00:00Z",
+    })
+    old = compute_source_quality_score({
+        "url": "https://example.com/report",
+        "fetched_at": "2020-01-01T00:00:00Z",
+    })
+
+    assert fresh["factors"] == ["fresh_30d"]
+    assert old["factors"] == ["stale_over_1yr"]

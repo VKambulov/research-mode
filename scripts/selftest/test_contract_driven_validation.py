@@ -15,6 +15,11 @@ DANGEROUS_IDENTIFIERS = [
     "addressing_markers",
     "official_signals",
     "user_gen_signals",
+    "SOURCE_TAGS",
+    "official_source",
+    "official_domain",
+    "authoritative_tag",
+    "user_generated_platform",
     "short_formats",
     "long_formats",
 ]
