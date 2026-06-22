@@ -99,9 +99,7 @@ def build_deliverable_format_decision(
             "reason": "Structured output contract outputs define the reviewable deliverables.",
             "source": "output_contract_outputs",
             "alternatives_considered": [],
-            "unsupported_primary_deliverable_kind": (
-                declared_raw if declared_raw and primary_kind is None else None
-            ),
+            "unsupported_primary_deliverable_kind": None,
         }
     feasible_kind = _artifact_format_kind(
         artifact_check,
@@ -582,6 +580,9 @@ def _inspect_output_contract_artifacts(
 
         expected_role = str(expected.get("role") or "").strip()
         candidate_role = str(candidate.get("role") or "").strip()
+        if expected_role == "primary_deliverable" and candidate_role == "primary":
+            artifact_result["role"] = expected_role
+            candidate_role = expected_role
         if expected_role and candidate_role != expected_role:
             reasons.append(f"candidate_artifact_role_mismatch:{output_id}")
 

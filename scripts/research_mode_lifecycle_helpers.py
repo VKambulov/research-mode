@@ -892,6 +892,11 @@ def validate_candidate_final(
         output_contract=working_memory.get("output_contract") or {},
         finalization=payload.get("finalization"),
     )
+    structured_output_final = (
+        artifact_check.get("mode") == "output_contract"
+        and artifact_check.get("passed")
+        and bool(output_decision)
+    )
 
     primary_kind = str(
         (payload.get("finalization") or {}).get("primary_deliverable_kind") or ""
@@ -913,16 +918,37 @@ def validate_candidate_final(
                 "reasons": [],
             }
         )
+    elif structured_output_final:
+        findings.append(
+            {
+                "check": "deliverable_quality",
+                "passed": True,
+                "reasons": [],
+                "skipped": True,
+                "reason": "Structured output artifact inspection is authoritative for reviewable output quality.",
+            }
+        )
     else:
         deliverable_check = _check_deliverable_quality(report_markdown)
         findings.append(deliverable_check)
         if not deliverable_check["passed"]:
             all_passed = False
 
-    human_readiness_check = _check_human_readiness(report_markdown)
-    findings.append(human_readiness_check)
-    if not human_readiness_check["passed"]:
-        all_passed = False
+    if structured_output_final:
+        findings.append(
+            {
+                "check": "human_readiness",
+                "passed": True,
+                "reasons": [],
+                "skipped": True,
+                "reason": "Structured output artifact inspection confirmed the reviewable deliverable.",
+            }
+        )
+    else:
+        human_readiness_check = _check_human_readiness(report_markdown)
+        findings.append(human_readiness_check)
+        if not human_readiness_check["passed"]:
+            all_passed = False
 
     manifest_check = _check_delivery_manifest(state)
     findings.append(manifest_check)

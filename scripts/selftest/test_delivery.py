@@ -1132,6 +1132,67 @@ def test_worker_final_structured_outputs_handoff_without_legacy_format_mismatch(
     )
 
 
+def test_worker_final_xlsx_output_does_not_require_legacy_kind_or_long_wrapper(root: Path) -> None:
+    task_id = "structured-xlsx-finish-handoff"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a formatted Excel company profile.",
+            "--output",
+            "id=company_workbook,role=primary_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    outputs_dir = task_dir / "workspace" / "outputs"
+    workbook_path = outputs_dir / "company-profile.xlsx"
+    _write_minimal_xlsx(workbook_path)
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "Excel workbook (.xlsx)",
+        "candidate_artifacts": [
+            {
+                "id": "company_workbook",
+                "path": "workspace/outputs/company-profile.xlsx",
+                "role": "primary",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "visibility": "user_facing",
+            }
+        ],
+    }
+    payload = _final_payload(finalization)
+    payload["final_report_markdown"] = (
+        "# Workbook wrapper\n\n"
+        "The review-ready Excel workbook is the primary deliverable for this task. "
+        "This wrapper only records the handoff context; workbook content, source "
+        "provenance, formatting, and validation evidence live in the XLSX artifact."
+    )
+
+    finished = _finish_with_payload(root, task_id, lease, payload)
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "valid structured XLSX output should not be blocked by legacy kind or wrapper length",
+    )
+    findings = finished.get("finalization_validation", {}).get("findings") or []
+    failed = [item for item in findings if not item.get("passed")]
+    assert_eq(failed, [], "structured XLSX finalization should have no failed checks")
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("delivery", {}).get("primary_file"),
+        str(workbook_path),
+        "delivery.primary_file should point at the XLSX workbook",
+    )
+
+
 def test_delivery_ready_missing_primary_file_sets_operator_attention(root: Path) -> None:
     task_id = "delivery-ready-missing-primary"
     json_out(
