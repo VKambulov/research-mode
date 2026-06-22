@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import re
 from typing import Any
 
 from research_mode_task import ResearchTask
@@ -17,6 +18,14 @@ CANONICAL_DELIVERABLE_KINDS = {
     "package",
     "unknown",
 }
+
+OUTPUT_ROLES = {
+    "primary_deliverable",
+    "supporting_deliverable",
+    "supporting_artifact",
+}
+
+SAFE_OUTPUT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -184,9 +193,70 @@ def finalization_defaults() -> dict[str, Any]:
 def output_contract_defaults() -> dict[str, Any]:
     return {
         "kind": None,
+        "outputs": [],
         "quality_checks": [],
         "search_profile": None,
     }
+
+
+def normalize_output_required(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1"}:
+            return True
+        if lowered in {"false", "0"}:
+            return False
+    raise ValidationError("output.required must be true, false, 1, or 0")
+
+
+def normalize_output_spec(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValidationError(f"{label} must be an object")
+    output_id = str(value.get("id") or "").strip()
+    if not output_id:
+        raise ValidationError(f"{label}.id is required")
+    if not SAFE_OUTPUT_ID_RE.fullmatch(output_id):
+        raise ValidationError(f"{label}.id must be a safe output id")
+    role = str(value.get("role") or "").strip() or "supporting_deliverable"
+    if role not in OUTPUT_ROLES:
+        allowed = ", ".join(sorted(OUTPUT_ROLES))
+        raise ValidationError(f"{label}.role must be one of: {allowed}")
+    result: dict[str, Any] = {
+        "id": output_id,
+        "role": role,
+        "required": normalize_output_required(value.get("required", True)),
+    }
+    media_type = str(value.get("media_type") or "").strip()
+    if media_type:
+        result["media_type"] = media_type
+    description = str(value.get("description") or "").strip()
+    if description:
+        result["description"] = description
+    return result
+
+
+def normalize_output_specs(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationError("output_contract.outputs must be a list")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary_count = 0
+    for index, item in enumerate(value):
+        output = normalize_output_spec(item, f"output_contract.outputs[{index}]")
+        output_id = output["id"]
+        if output_id in seen:
+            raise ValidationError(f"duplicate output id: {output_id}")
+        seen.add(output_id)
+        if output["role"] == "primary_deliverable":
+            primary_count += 1
+        result.append(output)
+    if result and primary_count != 1:
+        raise ValidationError("output_contract.outputs must declare exactly one primary_deliverable")
+    return result
 
 
 def normalize_output_contract(value: Any) -> dict[str, Any]:
@@ -202,6 +272,9 @@ def normalize_output_contract(value: Any) -> dict[str, Any]:
             allowed = ", ".join(sorted(CANONICAL_DELIVERABLE_KINDS))
             raise ValidationError(f"Unsupported output_contract.kind: {kind}. Allowed: {allowed}")
         result["kind"] = kind
+    outputs = value.get("outputs")
+    if outputs is not None:
+        result["outputs"] = normalize_output_specs(outputs)
     quality_checks = value.get("quality_checks")
     if quality_checks is not None:
         if not isinstance(quality_checks, list):
