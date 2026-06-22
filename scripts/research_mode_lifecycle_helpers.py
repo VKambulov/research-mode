@@ -9,6 +9,7 @@ from research_mode_corpus import list_corpus_entries
 from research_mode_adequacy import build_adequacy_contract, build_adequacy_guidance
 from research_mode_finalization import (
     build_finalization_contract,
+    build_output_decision,
     check_deliverable_format_decision,
     inspect_candidate_artifacts,
 )
@@ -887,6 +888,10 @@ def validate_candidate_final(
     findings.append(format_decision_check)
     if not format_decision_check["passed"]:
         all_passed = False
+    output_decision = build_output_decision(
+        output_contract=working_memory.get("output_contract") or {},
+        finalization=payload.get("finalization"),
+    )
 
     primary_kind = str(
         (payload.get("finalization") or {}).get("primary_deliverable_kind") or ""
@@ -954,6 +959,7 @@ def validate_candidate_final(
             )
             if key in format_decision_check
         },
+        "output_decision": output_decision,
     }
 
 

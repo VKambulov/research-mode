@@ -160,6 +160,33 @@ def build_deliverable_format_decision(
     }
 
 
+def build_output_decision(
+    *,
+    output_contract: dict[str, Any] | None,
+    finalization: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    outputs = (output_contract or {}).get("outputs") or []
+    if not outputs:
+        return None
+    primary_outputs = [
+        item for item in outputs if item.get("role") == "primary_deliverable"
+    ]
+    primary_output = primary_outputs[0] if primary_outputs else outputs[0]
+    required_output_ids = [
+        str(item.get("id"))
+        for item in outputs
+        if str(item.get("id") or "").strip() and bool(item.get("required", True))
+    ]
+    primary_output_id = str(primary_output.get("id") or "").strip()
+    return {
+        "source": "output_contract",
+        "selected_output_id": primary_output_id,
+        "primary_output_id": primary_output_id,
+        "required_output_ids": required_output_ids,
+        "reason": "Structured output contract declares reviewable outputs.",
+    }
+
+
 def check_deliverable_format_decision(
     *,
     state: dict[str, Any],
@@ -246,6 +273,7 @@ def build_finalization_surface(state: dict[str, Any]) -> dict[str, Any]:
         "intended_recipient": finalization.get("intended_recipient"),
         "primary_deliverable_kind": finalization.get("primary_deliverable_kind"),
         "deliverable_decision": finalization.get("deliverable_decision"),
+        "output_decision": finalization.get("output_decision"),
         "internal_artifacts": internal_artifacts,
         "candidate_artifacts": candidate_artifacts,
         "blocking_defects": blocking_defects,

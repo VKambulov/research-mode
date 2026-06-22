@@ -485,3 +485,29 @@ def test_candidate_artifact_relations_are_not_inferred_from_extensions(
     assert result["passed"] is False
     assert "candidate_artifact_derived_from_missing:report_pdf" in result["reasons"]
     assert "candidate_artifact_source_for_missing:report_source" in result["reasons"]
+
+
+def test_output_decision_takes_priority_over_legacy_primary_kind() -> None:
+    from research_mode_finalization import build_output_decision
+
+    decision = build_output_decision(
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                },
+                {"id": "sources", "role": "supporting_deliverable", "required": True},
+            ]
+        },
+        finalization={"primary_deliverable_kind": "markdown_report"},
+    )
+
+    assert decision == {
+        "source": "output_contract",
+        "selected_output_id": "report",
+        "primary_output_id": "report",
+        "required_output_ids": ["report", "sources"],
+        "reason": "Structured output contract declares reviewable outputs.",
+    }

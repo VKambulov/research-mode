@@ -264,6 +264,60 @@ def _primary_file_from_validation(
     return None
 
 
+def _delivery_outputs_from_validation(
+    task: ResearchTask,
+    validation_result: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not validation_result or not validation_result.get("passed"):
+        return []
+    output_decision = validation_result.get("output_decision") or {}
+    primary_output_id = str(output_decision.get("primary_output_id") or "").strip()
+    if not primary_output_id:
+        return []
+
+    outputs: list[dict[str, Any]] = []
+    for finding in validation_result.get("findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        if finding.get("mode") != "output_contract":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            if artifact.get("reasons"):
+                continue
+            if not artifact.get("exists") or not artifact.get("inside_task"):
+                continue
+            if artifact.get("is_file") is False:
+                continue
+            artifact_id = str(artifact.get("id") or "").strip()
+            artifact_path = str(artifact.get("path") or "").strip()
+            if not artifact_id or not artifact_path:
+                continue
+            try:
+                resolved = resolve_under_task(
+                    task.task_dir, artifact_path, label="delivery output artifact"
+                )
+            except ValidationError:
+                continue
+            if not resolved.is_file():
+                continue
+            output = {
+                "id": artifact_id,
+                "path": str(resolved),
+                "role": str(artifact.get("role") or "").strip()
+                or (
+                    "primary_deliverable"
+                    if artifact_id == primary_output_id
+                    else "supporting_deliverable"
+                ),
+            }
+            for key in ("media_type", "source_for", "derived_from"):
+                value = str(artifact.get(key) or "").strip()
+                if value:
+                    output[key] = value
+            outputs.append(output)
+    return outputs
+
+
 def _delivery_intent_id(
     *,
     task_id: str,
@@ -1121,6 +1175,7 @@ def _finish_iteration_impl(
                         "internal_artifacts",
                         "candidate_artifacts",
                         "deliverable_decision",
+                        "output_decision",
                         "blocking_defects",
                         "nonblocking_defects",
                         "revisions",
@@ -1131,6 +1186,10 @@ def _finish_iteration_impl(
                     if finalization_validation.get("deliverable_decision"):
                         finalization_state["deliverable_decision"] = (
                             finalization_validation["deliverable_decision"]
+                        )
+                    if finalization_validation.get("output_decision"):
+                        finalization_state["output_decision"] = (
+                            finalization_validation["output_decision"]
                         )
                     finalization_state["last_validation_findings"] = (
                         finalization_validation.get("findings") or []
@@ -1163,12 +1222,35 @@ def _finish_iteration_impl(
                             )
                             saved_report_path = str(task.final_report_path)
                             state["artifacts"]["final_report_path"] = saved_report_path
-                            primary_file = _primary_file_from_validation(
+                            delivery_outputs = _delivery_outputs_from_validation(
                                 task, finalization_validation
                             )
-                            state["delivery"]["primary_file"] = (
-                                primary_file or saved_report_path
-                            )
+                            if delivery_outputs:
+                                state["delivery"]["outputs"] = delivery_outputs
+                                primary_output = next(
+                                    (
+                                        item
+                                        for item in delivery_outputs
+                                        if item.get("role")
+                                        == "primary_deliverable"
+                                    ),
+                                    delivery_outputs[0],
+                                )
+                                state["delivery"]["primary_file"] = primary_output[
+                                    "path"
+                                ]
+                                state["delivery"]["attachments"] = [
+                                    str(item.get("path") or "")
+                                    for item in delivery_outputs
+                                    if item is not primary_output
+                                ]
+                            else:
+                                primary_file = _primary_file_from_validation(
+                                    task, finalization_validation
+                                )
+                                state["delivery"]["primary_file"] = (
+                                    primary_file or saved_report_path
+                                )
                         finalization_state["status"] = "passed"
                         state["delivery"]["review_ready"] = True
                         state["delivery"]["ready"] = False

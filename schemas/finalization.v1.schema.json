@@ -9,6 +9,7 @@
   "properties": {
     "status": {"type": "string"},
     "primary_deliverable_kind": {
+      "description": "Legacy single-output deliverable kind. New tasks should prefer output_decision and output_contract.outputs.",
       "type": ["string", "null"],
       "enum": [
         null,
@@ -23,6 +24,7 @@
       ]
     },
     "deliverable_decision": {
+      "description": "Legacy single-kind format decision. New structured output tasks should prefer output_decision.",
       "type": ["object", "null"],
       "additionalProperties": true,
       "properties": {
@@ -32,6 +34,17 @@
         "reason": {"type": ["string", "null"]},
         "source": {"type": ["string", "null"]},
         "alternatives_considered": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "output_decision": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "source": {"type": ["string", "null"]},
+        "selected_output_id": {"type": ["string", "null"]},
+        "primary_output_id": {"type": ["string", "null"]},
+        "required_output_ids": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": ["string", "null"]}
       }
     },
     "candidate_artifacts": {

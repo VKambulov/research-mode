@@ -194,6 +194,7 @@ def finalization_defaults() -> dict[str, Any]:
         "intended_recipient": None,
         "primary_deliverable_kind": None,
         "deliverable_decision": None,
+        "output_decision": None,
         "internal_artifacts": [],
         "candidate_artifacts": [],
         "blocking_defects": [],
@@ -505,6 +506,26 @@ def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
                 alternatives
             )
         result["deliverable_decision"] = cleaned_decision or None
+    output_decision = value.get("output_decision")
+    if output_decision not in (None, ""):
+        if not isinstance(output_decision, dict):
+            raise ValidationError("finalization.output_decision must be an object")
+        cleaned_output_decision: dict[str, Any] = {}
+        for key in (
+            "source",
+            "selected_output_id",
+            "primary_output_id",
+            "reason",
+        ):
+            text = str(output_decision.get(key) or "").strip()
+            if text:
+                cleaned_output_decision[key] = text
+        required_output_ids = output_decision.get("required_output_ids")
+        if required_output_ids is not None:
+            cleaned_output_decision["required_output_ids"] = normalize_string_list(
+                required_output_ids
+            )
+        result["output_decision"] = cleaned_output_decision or None
     for key in ("max_attempts", "attempt_count"):
         raw_number = value.get(key)
         if raw_number not in (None, ""):
