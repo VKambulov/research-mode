@@ -220,13 +220,19 @@ The operator-facing finalization surface exposes `operator_next_action`:
 This makes the next action explicit instead of requiring the operator to infer
 intent from raw JSON.
 
-Finalization can also record an optional `deliverable_decision` with
-`selected_kind`, `desired_kind`, and `feasible_kind`. This keeps the structured
-user-facing format contract separate from what the worker has actually produced.
-The desired kind comes from `working_memory.output_contract.kind` or a canonical
-`finalization.primary_deliverable_kind`, not from natural-language deliverable
-text, channel context, or report prose. Inspected artifact format is used only
-as the feasible kind when no explicit desired kind exists.
+Structured outputs live in `working_memory.output_contract.outputs[]`. Each
+output uses an open `id`, a small system `role`, optional open `media_type`, and
+optional `source_for` / `derived_from` id references. Produced files appear in
+`finalization.candidate_artifacts` and `delivery.outputs` with explicit paths.
+Validation matches declared contract to declared artifacts and checks task-local
+path/readability/non-empty shape; it does not infer file type, role, or
+provenance from filename, extension, MIME string, title, note, or list order.
+
+Finalization records `output_decision` for structured output contracts.
+`deliverable_decision`, `working_memory.output_contract.kind`, and
+`finalization.primary_deliverable_kind` are legacy single-output compatibility
+fields. Free-text `--deliverable`, channel context, titles, summaries, and notes
+do not choose output format or provenance.
 
 ## Reliability Diagnostics
 
@@ -515,14 +521,20 @@ flowchart TD
 
 Оператор видит следующий шаг явно, а не реконструирует намерение по сырому JSON.
 
-Финальная проверка также может записывать optional `deliverable_decision` с
-`selected_kind`, `desired_kind` и `feasible_kind`. Так структурный контракт
-пользовательского формата отделён от того, что worker фактически подготовил.
-Желаемый формат берётся из `working_memory.output_contract.kind` или
-канонического `finalization.primary_deliverable_kind`, а не из свободного текста
-deliverable, channel context или prose отчёта. Проверенный формат артефакта
-используется только как фактически доступный формат, если явного желаемого
-формата нет.
+Структурные outputs задаются в `working_memory.output_contract.outputs[]`.
+Каждый output использует открытый `id`, небольшую системную `role`, optional
+open `media_type` и optional ссылки `source_for` / `derived_from` по artifact
+id. Фактические файлы появляются в `finalization.candidate_artifacts` и
+`delivery.outputs` с явными путями. Validation сверяет объявленный контракт с
+объявленными artifacts и проверяет task-local path/readability/non-empty shape;
+тип файла, роль и provenance не выводятся из имени, расширения, MIME-строки,
+заголовка, заметки или порядка в списке.
+
+Финальная проверка записывает `output_decision` для structured output
+contracts. `deliverable_decision`, `working_memory.output_contract.kind` и
+`finalization.primary_deliverable_kind` остаются legacy compatibility для старой
+single-output модели. Свободный `--deliverable`, channel context, title,
+summary и notes не выбирают формат output или provenance.
 
 ## Reliability diagnostics
 

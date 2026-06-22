@@ -8,6 +8,17 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+- Added structured output artifact contracts with
+  `working_memory.output_contract.outputs[]`, `finalization.candidate_artifacts`
+  matching by explicit id, and `delivery.outputs` as the structured handoff.
+  `primary_file` and `attachments` remain compatibility mirrors.
+- Added open provenance links with `source_for` and `derived_from`. Validation
+  checks id reference integrity and contract/candidate agreement, but does not
+  infer source/editable lineage from file extension, MIME type, filename, prose,
+  content similarity, or list order.
+- Deprecated legacy single-output `--deliverable-kind`,
+  `working_memory.output_contract.kind`, `primary_deliverable_kind`, and
+  `deliverable_decision` for new tasks. They remain readable for old states.
 - Added a minimal read-only reliability diagnostics foundation: optional
   `state.reliability` counters, summary/health/operator-attention surfacing,
   task-playbook visibility, and old-state compatibility tests.
@@ -240,6 +251,19 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
+- Добавлен structured output artifacts contract:
+  `working_memory.output_contract.outputs[]`, matching
+  `finalization.candidate_artifacts` по явному id и `delivery.outputs` как
+  structured handoff. `primary_file` и `attachments` остаются compatibility
+  mirrors.
+- Добавлены открытые provenance-связи `source_for` и `derived_from`. Validation
+  проверяет integrity id-ссылок и согласованность contract/candidate, но не
+  выводит editable/source lineage из расширения, MIME, имени файла, prose,
+  похожести текста или порядка в списке.
+- Legacy single-output поля `--deliverable-kind`,
+  `working_memory.output_contract.kind`, `primary_deliverable_kind` и
+  `deliverable_decision` помечены как deprecated для новых задач, но остаются
+  читаемыми для старых states.
 - Добавлена минимальная read-only основа reliability diagnostics: optional
   counters в `state.reliability`, вывод в summary/health/operator-attention,
   видимость в task-playbook и проверки совместимости старых state.

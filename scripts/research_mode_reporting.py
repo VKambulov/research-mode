@@ -426,6 +426,13 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             lines.append(
                 f"- Primary deliverable kind: {finalization.get('primary_deliverable_kind')}"
             )
+        output_decision = finalization.get("output_decision") or {}
+        if output_decision:
+            lines.append(
+                "- Output decision: "
+                f"primary={output_decision.get('primary_output_id') or '-'} "
+                f"required={', '.join(output_decision.get('required_output_ids') or []) or '-'}"
+            )
         decision = finalization.get("deliverable_decision") or {}
         if decision:
             lines.append(
@@ -505,6 +512,8 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
         }
     ]
     if (
+        delivery.get("outputs")
+        or
         delivery.get("primary_file")
         or delivery.get("review_ready")
         or delivery.get("ready")
@@ -519,6 +528,14 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
                 f"- Primary file: {delivery.get('primary_file') or '-'}",
             ]
         )
+        outputs = delivery.get("outputs") or []
+        if outputs:
+            lines.append("- Outputs:")
+            for item in outputs:
+                lines.append(
+                    f"  - {item.get('id') or '-'}: {item.get('path') or '-'} "
+                    f"({item.get('role') or '-'})"
+                )
         if delivery_warnings:
             lines.append("- Handoff warnings:")
             for warning in delivery_warnings:
