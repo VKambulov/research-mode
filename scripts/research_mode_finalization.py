@@ -86,9 +86,23 @@ def build_deliverable_format_decision(
     trace = finalization or {}
     working_memory = state.get("working_memory") or {}
     output_contract = working_memory.get("output_contract") or {}
+    contract_outputs = output_contract.get("outputs") or []
     contract_kind = _canonical_deliverable_kind(output_contract.get("kind"))
     declared_raw = str(trace.get("primary_deliverable_kind") or "").strip().lower()
     primary_kind = _canonical_deliverable_kind(declared_raw)
+    if contract_outputs:
+        selected_kind = contract_kind or primary_kind or "structured_outputs"
+        return {
+            "selected_kind": selected_kind,
+            "desired_kind": selected_kind,
+            "feasible_kind": selected_kind,
+            "reason": "Structured output contract outputs define the reviewable deliverables.",
+            "source": "output_contract_outputs",
+            "alternatives_considered": [],
+            "unsupported_primary_deliverable_kind": (
+                declared_raw if declared_raw and primary_kind is None else None
+            ),
+        }
     feasible_kind = _artifact_format_kind(
         artifact_check,
         preferred_primary_kind=contract_kind or primary_kind,
