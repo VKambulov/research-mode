@@ -257,6 +257,92 @@ def test_consistency_warning_delivery_ready_missing_primary(root: Path) -> None:
     )
 
 
+def test_structured_output_handoff_ignores_legacy_primary_kind(root: Path) -> None:
+    task_id = "structured-handoff-ignore-legacy-kind"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Test structured output consistency.",
+            "--output",
+            "id=workbook,role=primary_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    output_path = task_dir / "workspace" / "outputs" / "report.xlsx"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"readable workbook placeholder")
+
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["status"] = "awaiting_review"
+    state["review"] = {"status": "pending", "revision_count": 0}
+    state["delivery"] = {
+        "review_ready": True,
+        "ready": False,
+        "primary_file": str(output_path),
+        "outputs": [
+            {
+                "id": "workbook",
+                "path": str(output_path),
+                "role": "primary_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }
+        ],
+    }
+    state["artifacts"]["final_report_path"] = None
+    state["finalization"] = {
+        "status": "passed",
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "id": "workbook",
+                "path": "workspace/outputs/report.xlsx",
+                "role": "primary_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }
+        ],
+        "last_validation_findings": [
+            {
+                "check": "candidate_artifact_inspection",
+                "mode": "output_contract",
+                "passed": True,
+                "reasons": [],
+                "artifacts": [
+                    {
+                        "id": "workbook",
+                        "path": "workspace/outputs/report.xlsx",
+                        "role": "primary_deliverable",
+                        "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "exists": True,
+                        "inside_task": True,
+                        "is_file": True,
+                        "reasons": [],
+                    }
+                ],
+            }
+        ],
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    summary_json = json_out(
+        run("summary", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    warnings = summary_json.get("consistency", {}).get("warnings") or []
+    assert_true(
+        not any(w.get("code") == "delivery_artifact_handoff_failed" for w in warnings),
+        "structured output handoff should not use stale legacy primary kind",
+    )
+
+
 def test_consistency_warning_active_lock_in_terminal_state(root: Path) -> None:
     created = json_out(
         run(

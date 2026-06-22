@@ -1193,6 +1193,75 @@ def test_worker_final_xlsx_output_does_not_require_legacy_kind_or_long_wrapper(r
     )
 
 
+def test_structured_outputs_do_not_require_legacy_primary_kind(root: Path) -> None:
+    task_id = "structured-output-no-legacy-kind"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a PDF report and source workbook.",
+            "--output",
+            "id=report,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    outputs_dir = task_dir / "workspace" / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    (outputs_dir / "report.pdf").write_bytes(b"%PDF-1.7\nstructured report\n")
+    _write_minimal_xlsx(outputs_dir / "sources.xlsx")
+
+    finalization = {
+        key: value
+        for key, value in _HUMAN_READY_FINALIZATION.items()
+        if key not in {"primary_deliverable_kind", "deliverable_decision"}
+    }
+    finalization["candidate_artifacts"] = [
+        {
+            "id": "report",
+            "path": "workspace/outputs/report.pdf",
+            "role": "primary_deliverable",
+            "media_type": "application/pdf",
+            "visibility": "user_facing",
+        },
+        {
+            "id": "sources",
+            "path": "workspace/outputs/sources.xlsx",
+            "role": "supporting_deliverable",
+            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "visibility": "user_facing",
+        },
+    ]
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "structured outputs should not need legacy primary_deliverable_kind",
+    )
+    finalization_trace = next(
+        (
+            item
+            for item in finished.get("finalization_validation", {}).get("findings") or []
+            if item.get("check") == "finalization_trace"
+        ),
+        {},
+    )
+    assert_eq(
+        finalization_trace.get("reasons"),
+        [],
+        "structured output contract should satisfy finalization trace without legacy kind",
+    )
+
+
 def test_approve_defaults_to_delivery_primary_file_for_structured_outputs(root: Path) -> None:
     task_id = "structured-output-approve-primary"
     json_out(
