@@ -63,6 +63,11 @@ def _positive_int(value: Any) -> int | None:
 
 def scheduled_worker_timeout_seconds(state: dict[str, Any]) -> int | None:
     job = state.get("job") or {}
+    lock = state.get("lock") or {}
+    if lock.get("status") == "held":
+        parsed = _positive_int(lock.get("worker_timeout_seconds"))
+        if parsed is not None:
+            return parsed
     schedule_template = job.get("schedule_template") or {}
     for candidate in (
         schedule_template.get("timeout_seconds"),

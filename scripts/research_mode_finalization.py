@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
+import research_mode_legacy_deliverables as legacy_deliverables
 from research_mode_utils import ValidationError, is_relative_to, resolve_under_task
 
 
@@ -25,22 +25,9 @@ FINALIZATION_REQUIRED_TRACE_FIELDS = [
 
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
-EXPECTED_FORMATS_BY_PRIMARY_KIND = {
-    "markdown_report": {"markdown"},
-    "pdf_report": {"pdf"},
-    "docx_report": {"docx"},
-    "html_report": {"html", "htm"},
-    "xlsx": {"xlsx"},
-    "csv": {"csv"},
-    "package": {"package"},
-}
-
 
 def expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
-    return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
-        str(primary_kind or "").strip().lower(),
-        set(),
-    )
+    return legacy_deliverables.expected_formats_for_kind(primary_kind)
 
 
 def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
@@ -64,22 +51,8 @@ def _canonical_deliverable_kind(kind: str | None) -> str | None:
     cleaned = str(kind or "").strip().lower()
     if not cleaned:
         return None
-    if cleaned in CANONICAL_DELIVERABLE_KINDS:
+    if cleaned in legacy_deliverables.LEGACY_DELIVERABLE_KINDS:
         return cleaned
-    return None
-
-
-def _format_to_deliverable_kind(artifact_format: str) -> str | None:
-    if artifact_format == "package":
-        return "package"
-    if artifact_format in {"markdown", "md"}:
-        return "markdown_report"
-    if artifact_format in {"pdf", "docx"}:
-        return f"{artifact_format}_report"
-    if artifact_format in {"html", "htm"}:
-        return "html_report"
-    if artifact_format in {"xlsx", "csv"}:
-        return artifact_format
     return None
 
 
@@ -94,10 +67,10 @@ def _artifact_format_kind(
         for artifact in artifacts:
             artifact_format = str(artifact.get("format") or "").strip().lower()
             if artifact_format in expected_formats:
-                return _format_to_deliverable_kind(artifact_format)
+                return legacy_deliverables.kind_for_artifact_format(artifact_format)
     for artifact in (artifact_check or {}).get("artifacts") or []:
         artifact_format = str(artifact.get("format") or "").strip().lower()
-        deliverable_kind = _format_to_deliverable_kind(artifact_format)
+        deliverable_kind = legacy_deliverables.kind_for_artifact_format(artifact_format)
         if deliverable_kind:
             return deliverable_kind
     return None
@@ -113,9 +86,21 @@ def build_deliverable_format_decision(
     trace = finalization or {}
     working_memory = state.get("working_memory") or {}
     output_contract = working_memory.get("output_contract") or {}
+    contract_outputs = output_contract.get("outputs") or []
     contract_kind = _canonical_deliverable_kind(output_contract.get("kind"))
     declared_raw = str(trace.get("primary_deliverable_kind") or "").strip().lower()
     primary_kind = _canonical_deliverable_kind(declared_raw)
+    if contract_outputs:
+        selected_kind = contract_kind or primary_kind or "structured_outputs"
+        return {
+            "selected_kind": selected_kind,
+            "desired_kind": selected_kind,
+            "feasible_kind": selected_kind,
+            "reason": "Structured output contract outputs define the reviewable deliverables.",
+            "source": "output_contract_outputs",
+            "alternatives_considered": [],
+            "unsupported_primary_deliverable_kind": None,
+        }
     feasible_kind = _artifact_format_kind(
         artifact_check,
         preferred_primary_kind=contract_kind or primary_kind,
@@ -157,6 +142,33 @@ def build_deliverable_format_decision(
         "unsupported_primary_deliverable_kind": (
             declared_raw if unsupported_primary_kind else None
         ),
+    }
+
+
+def build_output_decision(
+    *,
+    output_contract: dict[str, Any] | None,
+    finalization: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    outputs = (output_contract or {}).get("outputs") or []
+    if not outputs:
+        return None
+    primary_outputs = [
+        item for item in outputs if item.get("role") == "primary_deliverable"
+    ]
+    primary_output = primary_outputs[0] if primary_outputs else outputs[0]
+    required_output_ids = [
+        str(item.get("id"))
+        for item in outputs
+        if str(item.get("id") or "").strip() and bool(item.get("required", True))
+    ]
+    primary_output_id = str(primary_output.get("id") or "").strip()
+    return {
+        "source": "output_contract",
+        "selected_output_id": primary_output_id,
+        "primary_output_id": primary_output_id,
+        "required_output_ids": required_output_ids,
+        "reason": "Structured output contract declares reviewable outputs.",
     }
 
 
@@ -246,6 +258,7 @@ def build_finalization_surface(state: dict[str, Any]) -> dict[str, Any]:
         "intended_recipient": finalization.get("intended_recipient"),
         "primary_deliverable_kind": finalization.get("primary_deliverable_kind"),
         "deliverable_decision": finalization.get("deliverable_decision"),
+        "output_decision": finalization.get("output_decision"),
         "internal_artifacts": internal_artifacts,
         "candidate_artifacts": candidate_artifacts,
         "blocking_defects": blocking_defects,
@@ -380,9 +393,20 @@ def inspect_candidate_artifacts(
     final_report_path: Path,
     finalization: dict[str, Any] | None,
     report_markdown: str,
+    output_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trace = finalization or {}
     candidate_artifacts = trace.get("candidate_artifacts") or []
+    internal_artifacts = trace.get("internal_artifacts") or []
+    expected_outputs = (output_contract or {}).get("outputs") or []
+    if expected_outputs:
+        return _inspect_output_contract_artifacts(
+            task_dir=task_dir,
+            candidate_artifacts=candidate_artifacts,
+            internal_artifacts=internal_artifacts,
+            expected_outputs=expected_outputs,
+        )
+
     report_text = str(report_markdown or "").strip()
     primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
 
@@ -509,6 +533,175 @@ def inspect_candidate_artifacts(
         "artifacts": checked,
         "mode": "candidate_artifacts",
     }
+
+
+def _inspect_output_contract_artifacts(
+    *,
+    task_dir: Path,
+    candidate_artifacts: list[dict[str, Any]],
+    internal_artifacts: list[dict[str, Any]],
+    expected_outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    checked: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    candidates_by_id: dict[str, dict[str, Any]] = {}
+    graph_ids: set[str] = set()
+    for artifact in candidate_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if not artifact_id:
+            reasons.append("candidate_artifact_id_missing")
+            checked.append({**artifact, "exists": False, "reasons": ["candidate_artifact_id_missing"]})
+            continue
+        graph_ids.add(artifact_id)
+        if artifact_id not in candidates_by_id:
+            candidates_by_id[artifact_id] = artifact
+    for artifact in internal_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if artifact_id:
+            graph_ids.add(artifact_id)
+
+    for expected in expected_outputs:
+        output_id = str(expected.get("id") or "").strip()
+        if not output_id:
+            continue
+        candidate = candidates_by_id.get(output_id)
+        required = bool(expected.get("required", True))
+        if candidate is None:
+            if required:
+                reasons.append(f"required_output_missing:{output_id}")
+            continue
+
+        artifact_result = _inspect_declared_output_artifact(
+            task_dir=task_dir,
+            artifact=candidate,
+        )
+        checked.append(artifact_result)
+        reasons.extend(artifact_result.get("reasons") or [])
+
+        expected_role = str(expected.get("role") or "").strip()
+        candidate_role = str(candidate.get("role") or "").strip()
+        if expected_role == "primary_deliverable" and candidate_role == "primary":
+            artifact_result["role"] = expected_role
+            candidate_role = expected_role
+        if expected_role and candidate_role != expected_role:
+            reasons.append(f"candidate_artifact_role_mismatch:{output_id}")
+
+        expected_media_type = str(expected.get("media_type") or "").strip()
+        candidate_media_type = str(candidate.get("media_type") or "").strip()
+        if expected_media_type:
+            if not candidate_media_type:
+                reasons.append(f"candidate_artifact_media_type_missing:{output_id}")
+            elif candidate_media_type != expected_media_type:
+                reasons.append(f"candidate_artifact_media_type_mismatch:{output_id}")
+
+        for field in ("derived_from", "source_for"):
+            expected_relation = str(expected.get(field) or "").strip()
+            candidate_relation = str(candidate.get(field) or "").strip()
+            if expected_relation:
+                if not candidate_relation:
+                    reasons.append(f"candidate_artifact_{field}_missing:{output_id}")
+                elif candidate_relation != expected_relation:
+                    reasons.append(f"candidate_artifact_{field}_mismatch:{output_id}")
+            relation_target = candidate_relation or expected_relation
+            if relation_target and relation_target not in graph_ids:
+                reasons.append(
+                    f"candidate_artifact_relation_target_missing:"
+                    f"{output_id}:{field}:{relation_target}"
+                )
+
+    for artifact in internal_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if not artifact_id:
+            continue
+        for field in ("derived_from", "source_for"):
+            relation_target = str(artifact.get(field) or "").strip()
+            if relation_target and relation_target not in graph_ids:
+                reasons.append(
+                    f"internal_artifact_relation_target_missing:"
+                    f"{artifact_id}:{field}:{relation_target}"
+                )
+
+    deduped_reasons = list(dict.fromkeys(reasons))
+    return {
+        "check": "candidate_artifact_inspection",
+        "passed": not deduped_reasons,
+        "reasons": deduped_reasons,
+        "artifacts": checked,
+        "mode": "output_contract",
+    }
+
+
+def _inspect_declared_output_artifact(
+    *,
+    task_dir: Path,
+    artifact: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_id = str(artifact.get("id") or "").strip()
+    artifact_path = str(artifact.get("path") or "").strip()
+    result = {
+        "id": artifact_id,
+        "path": artifact_path,
+        "role": str(artifact.get("role") or "").strip() or None,
+        "media_type": str(artifact.get("media_type") or "").strip() or None,
+        "source_for": str(artifact.get("source_for") or "").strip() or None,
+        "derived_from": str(artifact.get("derived_from") or "").strip() or None,
+    }
+    reasons: list[str] = []
+    if not artifact_path:
+        reasons.append("candidate_artifact_missing")
+        return {**result, "exists": False, "reasons": reasons}
+
+    try:
+        resolved = resolve_under_task(task_dir, artifact_path, label="candidate artifact")
+    except ValidationError:
+        return {
+            **result,
+            "exists": False,
+            "inside_task": False,
+            "reasons": ["candidate_artifact_outside_task"],
+        }
+
+    if not resolved.exists():
+        reasons.append("candidate_artifact_missing")
+        return {
+            **result,
+            "exists": False,
+            "inside_task": True,
+            "reasons": reasons,
+        }
+
+    artifact_result: dict[str, Any] = {
+        **result,
+        "exists": True,
+        "inside_task": True,
+        "is_file": resolved.is_file(),
+        "is_directory": resolved.is_dir(),
+        "size_bytes": None,
+    }
+    if resolved.is_file():
+        try:
+            size_bytes = resolved.stat().st_size
+            with resolved.open("rb") as handle:
+                handle.read(1)
+        except OSError:
+            reasons.append("candidate_artifact_unreadable")
+            size_bytes = None
+        artifact_result["size_bytes"] = size_bytes
+        if size_bytes == 0:
+            reasons.append("candidate_artifact_empty")
+    elif resolved.is_dir():
+        try:
+            has_child = any(resolved.iterdir())
+        except OSError:
+            reasons.append("candidate_artifact_unreadable")
+        else:
+            if not has_child:
+                reasons.append("candidate_artifact_empty")
+    else:
+        reasons.append("candidate_artifact_not_file")
+
+    artifact_result["reasons"] = list(dict.fromkeys(reasons))
+    return artifact_result
 
 
 def _inspect_package_candidate(

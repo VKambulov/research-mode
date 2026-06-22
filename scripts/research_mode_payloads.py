@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import argparse
 import copy
+import re
 from typing import Any
 
+from research_mode_legacy_deliverables import LEGACY_DELIVERABLE_KINDS
 from research_mode_task import ResearchTask
 from research_mode_utils import NO_ACTIVE_LEASE, ValidationError, utc_now
 
-CANONICAL_DELIVERABLE_KINDS = {
-    "markdown_report",
-    "pdf_report",
-    "docx_report",
-    "html_report",
-    "xlsx",
-    "csv",
-    "package",
-    "unknown",
+OUTPUT_ROLES = {
+    "primary_deliverable",
+    "supporting_deliverable",
+    "supporting_artifact",
 }
+
+SAFE_OUTPUT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
+ARTIFACT_RELATION_FIELDS = ("source_for", "derived_from")
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -133,6 +133,20 @@ def _normalize_typed_artifacts(value: Any, label: str) -> list[dict[str, Any]]:
         artifact_role = str(item.get("role") or "").strip()
         if artifact_role:
             entry["role"] = artifact_role
+        artifact_id = str(item.get("id") or "").strip()
+        if artifact_id:
+            if not SAFE_OUTPUT_ID_RE.fullmatch(artifact_id):
+                raise ValidationError(f"{label}.id must be a safe artifact id")
+            entry["id"] = artifact_id
+        media_type = str(item.get("media_type") or "").strip()
+        if media_type:
+            entry["media_type"] = media_type
+        for field in ARTIFACT_RELATION_FIELDS:
+            relation = str(item.get(field) or "").strip()
+            if relation:
+                if not SAFE_OUTPUT_ID_RE.fullmatch(relation):
+                    raise ValidationError(f"{label}.{field} must be a safe artifact id")
+                entry[field] = relation
         result.append(entry)
     return result
 
@@ -170,6 +184,7 @@ def finalization_defaults() -> dict[str, Any]:
         "intended_recipient": None,
         "primary_deliverable_kind": None,
         "deliverable_decision": None,
+        "output_decision": None,
         "internal_artifacts": [],
         "candidate_artifacts": [],
         "blocking_defects": [],
@@ -184,9 +199,115 @@ def finalization_defaults() -> dict[str, Any]:
 def output_contract_defaults() -> dict[str, Any]:
     return {
         "kind": None,
+        "outputs": [],
         "quality_checks": [],
         "search_profile": None,
     }
+
+
+def normalize_output_required(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1"}:
+            return True
+        if lowered in {"false", "0"}:
+            return False
+    raise ValidationError("output.required must be true, false, 1, or 0")
+
+
+def normalize_output_spec(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValidationError(f"{label} must be an object")
+    output_id = str(value.get("id") or "").strip()
+    if not output_id:
+        raise ValidationError(f"{label}.id is required")
+    if not SAFE_OUTPUT_ID_RE.fullmatch(output_id):
+        raise ValidationError(f"{label}.id must be a safe output id")
+    role = str(value.get("role") or "").strip() or "supporting_deliverable"
+    if role not in OUTPUT_ROLES:
+        allowed = ", ".join(sorted(OUTPUT_ROLES))
+        raise ValidationError(f"{label}.role must be one of: {allowed}")
+    result: dict[str, Any] = {
+        "id": output_id,
+        "role": role,
+        "required": normalize_output_required(value.get("required", True)),
+    }
+    media_type = str(value.get("media_type") or "").strip()
+    if media_type:
+        result["media_type"] = media_type
+    description = str(value.get("description") or "").strip()
+    if description:
+        result["description"] = description
+    for field in ARTIFACT_RELATION_FIELDS:
+        relation = str(value.get(field) or "").strip()
+        if relation:
+            if not SAFE_OUTPUT_ID_RE.fullmatch(relation):
+                raise ValidationError(f"{label}.{field} must be a safe artifact id")
+            result[field] = relation
+    return result
+
+
+def normalize_output_specs(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationError("output_contract.outputs must be a list")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary_count = 0
+    for index, item in enumerate(value):
+        output = normalize_output_spec(item, f"output_contract.outputs[{index}]")
+        output_id = output["id"]
+        if output_id in seen:
+            raise ValidationError(f"duplicate output id: {output_id}")
+        seen.add(output_id)
+        if output["role"] == "primary_deliverable":
+            primary_count += 1
+        result.append(output)
+    if result and primary_count != 1:
+        raise ValidationError("output_contract.outputs must declare exactly one primary_deliverable")
+    return result
+
+
+def parse_output_spec_arg(raw: str) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for part in str(raw or "").split(","):
+        key, sep, value = part.partition("=")
+        if not sep:
+            raise ValidationError("output spec entries must use key=value")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValidationError("output spec key cannot be empty")
+        if key == "required":
+            lowered = value.lower()
+            if lowered not in {"true", "false", "1", "0"}:
+                raise ValidationError("output.required must be true, false, 1, or 0")
+            result[key] = lowered in {"true", "1"}
+        else:
+            result[key] = value
+    return normalize_output_spec(result, "output")
+
+
+def parse_output_artifact_arg(raw: str) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for part in str(raw or "").split(","):
+        key, sep, value = part.partition("=")
+        if not sep:
+            raise ValidationError("output artifact entries must use key=value")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValidationError("output artifact key cannot be empty")
+        result[key] = value
+    output = normalize_output_spec(result, "output")
+    path = str(result.get("path") or "").strip()
+    if not path:
+        raise ValidationError("output.path is required")
+    output["path"] = path
+    return output
 
 
 def normalize_output_contract(value: Any) -> dict[str, Any]:
@@ -198,10 +319,13 @@ def normalize_output_contract(value: Any) -> dict[str, Any]:
     kind = value.get("kind")
     if kind not in (None, ""):
         kind = str(kind).strip()
-        if kind not in CANONICAL_DELIVERABLE_KINDS:
-            allowed = ", ".join(sorted(CANONICAL_DELIVERABLE_KINDS))
+        if kind not in LEGACY_DELIVERABLE_KINDS:
+            allowed = ", ".join(sorted(LEGACY_DELIVERABLE_KINDS))
             raise ValidationError(f"Unsupported output_contract.kind: {kind}. Allowed: {allowed}")
         result["kind"] = kind
+    outputs = value.get("outputs")
+    if outputs is not None:
+        result["outputs"] = normalize_output_specs(outputs)
     quality_checks = value.get("quality_checks")
     if quality_checks is not None:
         if not isinstance(quality_checks, list):
@@ -372,6 +496,26 @@ def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
                 alternatives
             )
         result["deliverable_decision"] = cleaned_decision or None
+    output_decision = value.get("output_decision")
+    if output_decision not in (None, ""):
+        if not isinstance(output_decision, dict):
+            raise ValidationError("finalization.output_decision must be an object")
+        cleaned_output_decision: dict[str, Any] = {}
+        for key in (
+            "source",
+            "selected_output_id",
+            "primary_output_id",
+            "reason",
+        ):
+            text = str(output_decision.get(key) or "").strip()
+            if text:
+                cleaned_output_decision[key] = text
+        required_output_ids = output_decision.get("required_output_ids")
+        if required_output_ids is not None:
+            cleaned_output_decision["required_output_ids"] = normalize_string_list(
+                required_output_ids
+            )
+        result["output_decision"] = cleaned_output_decision or None
     for key in ("max_attempts", "attempt_count"):
         raw_number = value.get(key)
         if raw_number not in (None, ""):
@@ -613,7 +757,13 @@ def build_initial_state(
                 str(getattr(args, "deliverable", "") or "").strip() or None
             ),
             "output_contract": normalize_output_contract(
-                {"kind": getattr(args, "deliverable_kind", None)}
+                {
+                    "kind": getattr(args, "deliverable_kind", None),
+                    "outputs": [
+                        parse_output_spec_arg(item)
+                        for item in (getattr(args, "output", None) or [])
+                    ],
+                }
             ),
             "contract": None,
             "user_instructions": normalize_string_list(
@@ -634,6 +784,7 @@ def build_initial_state(
             "milestone_every_iterations": args.milestone_every,
             "last_update_at": None,
             "sent_updates": 0,
+            "outputs": [],
             "primary_file": None,
             "attachments": [],
             "summary_text": None,

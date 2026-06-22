@@ -1128,6 +1128,80 @@ def test_awaiting_review_finish_creates_delivery_intent(root: Path) -> None:
     )
 
 
+def test_intermediate_finalize_does_not_create_empty_delivery_intent(root: Path) -> None:
+    task_id = "intermediate-finalize-no-empty-intent"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Do not notify before review-ready artifact exists",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalize_lease = route_to_finalize(root, task_id, lease)
+    result_file = Path(finalize_lease["paths"]["result_file"])
+    result_file.write_text(
+        json.dumps(
+            {
+                "summary": "Still packaging the final report.",
+                "next_angle": "Fix finalization evidence.",
+                "meaningful_progress": True,
+                "phase": "finalize",
+                "open_questions": [],
+                "sources": [],
+                "findings": [],
+                "notify_recommendation": "final",
+                "should_complete": True,
+                "final_report_markdown": "# Draft\n\nNot review ready yet.",
+                "finalization": {},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    finished = json_out(
+        run(
+            "finish",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--run-id",
+            finalize_lease["run_id"],
+            "--result-file",
+            str(result_file),
+        )
+    )
+    assert_eq(
+        finished["status"],
+        "finalize",
+        "invalid finalization should remain in finalize for worker rework",
+    )
+    assert_true(
+        not finished.get("delivery_intent"),
+        "intermediate finalize should not create an empty notification intent",
+    )
+    state = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("delivery_intents") or [],
+        [],
+        "state should not persist delivery intents without update_text or primary_file",
+    )
+
+
 def test_record_notification_sent_clears_blocked_markers(root: Path) -> None:
     task_id = "awaiting-review-blocked-intent-recorded-sent"
     json_out(

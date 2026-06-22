@@ -739,6 +739,7 @@ def build_summary_payload(
         "delivery": {
             "sent_updates": int((state.get("delivery") or {}).get("sent_updates") or 0),
             "last_update_at": (state.get("delivery") or {}).get("last_update_at"),
+            "outputs": (state.get("delivery") or {}).get("outputs") or [],
             "primary_file": (state.get("delivery") or {}).get("primary_file"),
             "attachments": (state.get("delivery") or {}).get("attachments") or [],
             "ready": bool((state.get("delivery") or {}).get("ready")),

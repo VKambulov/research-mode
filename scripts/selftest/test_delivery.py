@@ -1046,6 +1046,223 @@ def test_worker_final_inspects_xlsx_candidate_sheet_names(root: Path) -> None:
     )
 
 
+def test_worker_final_structured_outputs_handoff_without_legacy_format_mismatch(root: Path) -> None:
+    task_id = "structured-output-finish-handoff"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a PDF report and source workbook.",
+            "--output",
+            "id=report,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    outputs_dir = task_dir / "workspace" / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    (outputs_dir / "report.pdf").write_bytes(b"%PDF-1.7\nstructured report\n")
+    _write_minimal_xlsx(outputs_dir / "sources.xlsx")
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "pdf_report",
+        "candidate_artifacts": [
+            {
+                "id": "report",
+                "path": "workspace/outputs/report.pdf",
+                "role": "primary_deliverable",
+                "media_type": "application/pdf",
+                "visibility": "user_facing",
+            },
+            {
+                "id": "sources",
+                "path": "workspace/outputs/sources.xlsx",
+                "role": "supporting_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "visibility": "user_facing",
+            },
+        ],
+    }
+
+    finished = _finish_with_payload(root, task_id, lease, _final_payload(finalization))
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "structured outputs should pass finalization and enter review",
+    )
+    findings = finished.get("finalization_validation", {}).get("findings") or []
+    format_decision = next(
+        (
+            item
+            for item in findings
+            if item.get("check") == "deliverable_format_decision"
+        ),
+        {},
+    )
+    assert_eq(
+        format_decision.get("reasons"),
+        [],
+        "structured outputs should not fail legacy format decision",
+    )
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    delivery = state.get("delivery") or {}
+    assert_eq(
+        delivery.get("primary_file"),
+        str(outputs_dir / "report.pdf"),
+        "primary_file should point at the primary structured output",
+    )
+    assert_eq(
+        [item.get("id") for item in delivery.get("outputs") or []],
+        ["report", "sources"],
+        "delivery.outputs should retain structured outputs",
+    )
+    assert_eq(
+        delivery.get("attachments"),
+        [str(outputs_dir / "sources.xlsx")],
+        "supporting output should become an attachment",
+    )
+
+
+def test_worker_final_xlsx_output_does_not_require_legacy_kind_or_long_wrapper(root: Path) -> None:
+    task_id = "structured-xlsx-finish-handoff"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a formatted Excel company profile.",
+            "--output",
+            "id=company_workbook,role=primary_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    outputs_dir = task_dir / "workspace" / "outputs"
+    workbook_path = outputs_dir / "company-profile.xlsx"
+    _write_minimal_xlsx(workbook_path)
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "primary_deliverable_kind": "Excel workbook (.xlsx)",
+        "candidate_artifacts": [
+            {
+                "id": "company_workbook",
+                "path": "workspace/outputs/company-profile.xlsx",
+                "role": "primary",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "visibility": "user_facing",
+            }
+        ],
+    }
+    payload = _final_payload(finalization)
+    payload["final_report_markdown"] = (
+        "# Workbook wrapper\n\n"
+        "The review-ready Excel workbook is the primary deliverable for this task. "
+        "This wrapper only records the handoff context; workbook content, source "
+        "provenance, formatting, and validation evidence live in the XLSX artifact."
+    )
+
+    finished = _finish_with_payload(root, task_id, lease, payload)
+
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "valid structured XLSX output should not be blocked by legacy kind or wrapper length",
+    )
+    findings = finished.get("finalization_validation", {}).get("findings") or []
+    failed = [item for item in findings if not item.get("passed")]
+    assert_eq(failed, [], "structured XLSX finalization should have no failed checks")
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("delivery", {}).get("primary_file"),
+        str(workbook_path),
+        "delivery.primary_file should point at the XLSX workbook",
+    )
+
+
+def test_approve_defaults_to_delivery_primary_file_for_structured_outputs(root: Path) -> None:
+    task_id = "structured-output-approve-primary"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a formatted Excel company profile.",
+            "--output",
+            "id=company_workbook,role=primary_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    workbook_path = task_dir / "workspace" / "outputs" / "company-profile.xlsx"
+    _write_minimal_xlsx(workbook_path)
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "candidate_artifacts": [
+            {
+                "id": "company_workbook",
+                "path": "workspace/outputs/company-profile.xlsx",
+                "role": "primary_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "visibility": "user_facing",
+            }
+        ],
+    }
+    payload = _final_payload(finalization)
+    payload["final_report_markdown"] = (
+        "# Workbook wrapper\n\n"
+        "The XLSX file is the reviewable deliverable; this markdown is only handoff context."
+    )
+    finished = _finish_with_payload(root, task_id, lease, payload)
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "structured workbook task should wait for review",
+    )
+
+    approved = json_out(
+        run(
+            "approve",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--feedback",
+            "Workbook approved.",
+        )
+    )
+
+    assert_eq(
+        approved.get("approved_artifact_path"),
+        str(workbook_path),
+        "approve should default to delivery.primary_file for structured outputs",
+    )
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("review", {}).get("approved_artifact_path"),
+        str(workbook_path),
+        "review state should record the actual workbook as approved artifact",
+    )
+
+
 def test_delivery_ready_missing_primary_file_sets_operator_attention(root: Path) -> None:
     task_id = "delivery-ready-missing-primary"
     json_out(
@@ -1631,6 +1848,88 @@ def test_mark_delivered_command(root: Path) -> None:
     assert_true(
         any("leads.xlsx" in att for att in attachments),
         "attachment should be in attachments list",
+    )
+
+
+def test_mark_delivered_accepts_structured_outputs(root: Path) -> None:
+    task_id = "delivery-output-files"
+    run("create", "--root", str(root), "--id", task_id, "--goal", "Prepare outputs")
+    task_dir = root / task_id
+    out_dir = task_dir / "workspace" / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (out_dir / "sources.xlsx").write_bytes(b"readable")
+
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text())
+    state["working_memory"]["output_contract"] = {
+        "outputs": [
+            {
+                "id": "report",
+                "role": "primary_deliverable",
+                "media_type": "application/pdf",
+            },
+            {
+                "id": "sources",
+                "role": "supporting_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+        "quality_checks": [],
+        "search_profile": None,
+    }
+    state["finalization"] = {
+        **state["finalization"],
+        "status": "passed",
+        "candidate_artifacts": [
+            {
+                "id": "report",
+                "path": "workspace/outputs/report.pdf",
+                "role": "primary_deliverable",
+                "media_type": "application/pdf",
+            },
+            {
+                "id": "sources",
+                "path": "workspace/outputs/sources.xlsx",
+                "role": "supporting_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+    }
+    state["status"] = "awaiting_review"
+    state["delivery"]["review_ready"] = True
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+    delivered = json_out(
+        run(
+            "mark-delivered",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--output",
+            "id=report,path=workspace/outputs/report.pdf,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,path=workspace/outputs/sources.xlsx,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--ready",
+        )
+    )
+
+    assert_eq(
+        delivered["primary_file"],
+        str(out_dir / "report.pdf"),
+        "primary_file should mirror the primary structured output",
+    )
+    assert_eq(
+        delivered["attachments"],
+        [str(out_dir / "sources.xlsx")],
+        "attachments should mirror supporting structured outputs",
+    )
+    status = json_out(run("status", "--root", str(root), "--id", task_id))
+    assert_eq(
+        [item["id"] for item in status["delivery"]["outputs"]],
+        ["report", "sources"],
+        "status should expose structured delivery outputs",
     )
 
 

@@ -22,7 +22,12 @@ from research_mode_corpus import (
 )
 from research_mode_health import build_health_payload
 from research_mode_lifecycle_helpers import clear_reviewable_candidate
-from research_mode_payloads import normalize_output_contract, normalize_string_list
+from research_mode_payloads import (
+    normalize_output_contract,
+    normalize_string_list,
+    parse_output_artifact_arg,
+    parse_output_spec_arg,
+)
 from research_mode_queue import release_global_queue
 from research_mode_reasons import reason_for_control_action, set_history_reason
 from research_mode_registry import resolve_task_from_args
@@ -49,6 +54,27 @@ from research_mode_utils import (
 DEFAULT_FINAL_STATUSES = {"complete", "failed", "cancelled"}
 REVIEW_WAIT_STATUSES = {"awaiting_review"}
 SCRIPT_PATH = Path(__file__).resolve().with_name("research_mode.py")
+DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
+
+
+def _merge_output_specs(
+    current: list[dict[str, Any]], updates: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    merged = [dict(item) for item in current]
+    index_by_id = {
+        str(item.get("id")): index
+        for index, item in enumerate(merged)
+        if str(item.get("id") or "").strip()
+    }
+    for item in updates:
+        output = dict(item)
+        output_id = str(output.get("id") or "").strip()
+        if output_id in index_by_id:
+            merged[index_by_id[output_id]] = output
+        else:
+            index_by_id[output_id] = len(merged)
+            merged.append(output)
+    return merged
 
 
 def _has_glob_magic(text: str) -> bool:
@@ -208,7 +234,9 @@ def _build_schedule_args(
         id=state.get("id"),
         path=str(task.task_dir),
         every=str(every),
-        timeout_seconds=int(template.get("timeout_seconds") or 900),
+        timeout_seconds=int(
+            template.get("timeout_seconds") or DEFAULT_WORKER_TIMEOUT_SECONDS
+        ),
         thinking=str(template.get("thinking") or "high"),
         agent=template.get("agent"),
         model=template.get("model"),
@@ -529,6 +557,16 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
             deliverable = None
         if getattr(args, "deliverable_kind", None) is not None:
             output_contract["kind"] = str(args.deliverable_kind).strip()
+        output_specs = [
+            parse_output_spec_arg(item)
+            for item in (getattr(args, "output", None) or [])
+        ]
+        if output_specs:
+            output_contract["outputs"] = _merge_output_specs(
+                output_contract.get("outputs") or [],
+                output_specs,
+            )
+            output_contract = normalize_output_contract(output_contract)
 
         if getattr(args, "clear_contract", False):
             contract = None
@@ -576,6 +614,7 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
             "output_contract": output_contract,
             "user_instructions": user_instructions,
             "contract": contract,
+            "working_memory": dict(working_memory),
         }
 
     refresh_task_playbook(task)
@@ -587,8 +626,13 @@ def steering_alias_command(args: argparse.Namespace) -> int:
     text = getattr(args, "text", None)
     if args.action != "set-deliverable" and text is None:
         raise ValidationError(f"{args.action} requires text")
-    if args.action == "set-deliverable" and text is None and not getattr(args, "kind", None):
-        raise ValidationError("set-deliverable requires text or --kind")
+    if (
+        args.action == "set-deliverable"
+        and text is None
+        and not getattr(args, "kind", None)
+        and not getattr(args, "output", None)
+    ):
+        raise ValidationError("set-deliverable requires text, --kind, or --output")
     mutate_args = argparse.Namespace(
         root=args.root,
         id=args.id,
@@ -605,6 +649,7 @@ def steering_alias_command(args: argparse.Namespace) -> int:
         set_deliverable=None,
         clear_deliverable=False,
         deliverable_kind=None,
+        output=[],
         add_instruction=None,
         remove_instruction=None,
         clear_instructions=False,
@@ -620,6 +665,7 @@ def steering_alias_command(args: argparse.Namespace) -> int:
     elif args.action == "set-deliverable":
         mutate_args.set_deliverable = text
         mutate_args.deliverable_kind = getattr(args, "kind", None)
+        mutate_args.output = getattr(args, "output", None) or []
     else:
         raise ValidationError(f"Unsupported steering alias action: {args.action}")
     return mutate_working_memory_command(mutate_args)
@@ -964,6 +1010,21 @@ def _validate_attachment_path(attachment: str, task: ResearchTask) -> str:
     return str(path)
 
 
+def _build_delivery_outputs(
+    raw_outputs: list[str],
+    task: ResearchTask,
+) -> list[dict[str, Any]]:
+    outputs = [parse_output_artifact_arg(item) for item in raw_outputs]
+    primary_count = sum(1 for item in outputs if item.get("role") == "primary_deliverable")
+    if outputs and primary_count != 1:
+        raise ValidationError("delivery outputs must declare exactly one primary_deliverable")
+    result: list[dict[str, Any]] = []
+    for item in outputs:
+        validated_path = _validate_primary_file_path(str(item.get("path") or ""), task)
+        result.append({**item, "path": validated_path})
+    return result
+
+
 def approve_command(args: argparse.Namespace) -> int:
     task = resolve_task_from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
@@ -978,9 +1039,11 @@ def approve_command(args: argparse.Namespace) -> int:
             f"got status: {state.get('status')}"
         )
 
-    approved_artifact = getattr(args, "approved_artifact", None) or state.get(
-        "artifacts", {}
-    ).get("final_report_path")
+    approved_artifact = (
+        getattr(args, "approved_artifact", None)
+        or state.get("delivery", {}).get("primary_file")
+        or state.get("artifacts", {}).get("final_report_path")
+    )
     approved_artifact = _validate_artifact_path(
         approved_artifact, task, "reviewable artifact"
     )
@@ -1218,11 +1281,25 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
 
     explicit_primary_file = getattr(args, "primary_file", None)
     ready_flag = getattr(args, "ready", False)
+    structured_outputs = _build_delivery_outputs(
+        getattr(args, "output", None) or [],
+        task,
+    )
+    structured_primary = next(
+        (
+            item
+            for item in structured_outputs
+            if item.get("role") == "primary_deliverable"
+        ),
+        None,
+    )
 
     if explicit_primary_file is not None:
         validated_primary = _validate_primary_file_path(
             str(explicit_primary_file), task
         )
+    elif structured_primary is not None:
+        validated_primary = str(structured_primary.get("path") or "")
     else:
         validated_primary = None
 
@@ -1242,6 +1319,14 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
         delivery = state.setdefault("delivery", {})
         if explicit_primary_file is not None:
             delivery["primary_file"] = validated_primary
+        if structured_outputs:
+            delivery["outputs"] = structured_outputs
+            delivery["primary_file"] = validated_primary
+            delivery["attachments"] = [
+                str(item.get("path") or "")
+                for item in structured_outputs
+                if item.get("role") != "primary_deliverable" and item.get("path")
+            ]
         if getattr(args, "summary_text", None) is not None:
             delivery["summary_text"] = str(args.summary_text).strip()
         if getattr(args, "channel_strategy", None) is not None:
@@ -1269,6 +1354,7 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
             "status": state_after.get("status"),
             "task_id": state_after.get("id"),
             "delivery_ready": delivery_after.get("ready", False),
+            "outputs": delivery_after.get("outputs") or [],
             "primary_file": delivery_after.get("primary_file"),
             "attachments": delivery_after.get("attachments") or [],
             "summary_text": delivery_after.get("summary_text"),

@@ -478,20 +478,19 @@ python3 scripts/research_mode.py recover \
 Do not keep working indefinitely inside one lease. The system is designed around
 bounded iterations.
 
-For multi-file deliverables, use a finalization candidate with
-`primary_deliverable_kind=package` and a `package` / `final_package` artifact under
-`workspace/outputs/<name>`. The package must have an entrypoint such as
-`README.md`, `index.md`, `final-report.md`, or an explicit `entrypoint`, and all
-files must resolve inside the task directory.
+For multiple reviewable deliverables, use
+`working_memory.output_contract.outputs[]` and produce matching
+`finalization.candidate_artifacts` / `delivery.outputs` entries. MIME values are
+open strings supplied by the contract or worker; Research Mode does not keep a
+file-extension or MIME registry and does not infer role or provenance from file
+names, text, or list order. Use `source_for` and `derived_from` id references
+when an artifact is the declared source for another artifact or was generated
+from another artifact.
 
-Finalization records an optional `deliverable_decision` with the selected
-user-facing format, the desired kind, and the currently feasible kind. The
-desired kind comes only from structured fields such as
-`working_memory.output_contract.kind` or
-`finalization.primary_deliverable_kind`; free-text `--deliverable`, chat/thread
-context, titles, summaries, and notes do not choose the format. If
-`desired_kind` and `feasible_kind` differ, keep the task in finalization instead
-of marking delivery ready.
+Finalization records `output_decision` for structured outputs.
+`deliverable_decision`, `working_memory.output_contract.kind`, and
+`finalization.primary_deliverable_kind` remain legacy single-output
+compatibility fields.
 
 #### Launch Mode 5: Scheduling Existing Tasks
 
@@ -1439,14 +1438,18 @@ python3 scripts/research_mode.py mark-delivered \
 `awaiting_review` само по себе не означает готовность к доставке.
 `delivery.ready=true` появляется после утверждения или явной отметки доставки.
 
-Finalization записывает optional `deliverable_decision`: выбранный
-пользовательский формат, желаемый формат и фактически доступный формат.
-Желаемый формат берётся только из структурных полей, например
-`working_memory.output_contract.kind` или
-`finalization.primary_deliverable_kind`; свободный текст `--deliverable`,
-chat/thread контекст, заголовки, summaries и notes не выбирают формат. Если
-`desired_kind` и `feasible_kind` расходятся, задача остаётся в finalization и не
-помечается готовой к доставке.
+Для нескольких reviewable deliverables используется
+`working_memory.output_contract.outputs[]`, а фактические файлы указываются в
+`finalization.candidate_artifacts` / `delivery.outputs`. MIME values — открытые
+строки из контракта или worker result; Research Mode не держит registry
+extension/MIME и не выводит роль или provenance из имени файла, текста или
+порядка в списке. Для provenance используются id-ссылки `source_for` и
+`derived_from`.
+
+Finalization записывает `output_decision` для structured outputs.
+`deliverable_decision`, `working_memory.output_contract.kind` и
+`finalization.primary_deliverable_kind` остаются legacy compatibility для
+single-output модели.
 
 #### Связанное исследование
 

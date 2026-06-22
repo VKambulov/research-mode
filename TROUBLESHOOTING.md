@@ -266,7 +266,41 @@ Safe action:
 - use `request-changes` for worker rework, or `mark-delivered --primary-file ...`
   only after the correct primary file exists and has been reviewed.
 
-### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
+### Structured Output Artifact Failures
+
+Meaning:
+
+- `required_output_missing:<id>` means a required
+  `working_memory.output_contract.outputs[]` entry has no matching candidate
+  artifact id;
+- `candidate_artifact_role_mismatch:<id>` means the candidate role differs from
+  the declared output role;
+- `candidate_artifact_media_type_missing:<id>` or
+  `candidate_artifact_media_type_mismatch:<id>` means the contract declared an
+  explicit media type and the candidate omitted or changed it;
+- `candidate_artifact_derived_from_missing:<id>` and
+  `candidate_artifact_source_for_missing:<id>` mean provenance was declared in
+  the contract but not in the produced artifact;
+- `candidate_artifact_relation_target_missing:<id>:<field>:<target>` means a
+  `source_for` / `derived_from` id points to no candidate/internal artifact.
+
+Checks:
+
+- `working_memory.output_contract.outputs`;
+- `finalization.candidate_artifacts`;
+- `finalization.internal_artifacts`;
+- `delivery.outputs`;
+- `finalization.output_decision`;
+- `finalization.last_validation_findings`.
+
+Safe action:
+
+- use `request-changes` and ask the worker to write the missing artifact or fix
+  the explicit `id` / `role` / `media_type` / relation fields;
+- do not infer the source artifact from `.md`, `.html`, `.pdf`, file names, or
+  similar text.
+
+### Legacy `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
 
 Meaning:
 
@@ -762,7 +796,42 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
   `mark-delivered --primary-file ...` только после проверки корректного primary
   file.
 
-### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
+### Ошибки Structured Output Artifacts
+
+Значение:
+
+- `required_output_missing:<id>` означает, что required output из
+  `working_memory.output_contract.outputs[]` не имеет candidate artifact с тем
+  же id;
+- `candidate_artifact_role_mismatch:<id>` означает, что роль candidate artifact
+  отличается от объявленной роли output;
+- `candidate_artifact_media_type_missing:<id>` или
+  `candidate_artifact_media_type_mismatch:<id>` означает, что контракт явно
+  объявил media type, а candidate его не указал или указал другой;
+- `candidate_artifact_derived_from_missing:<id>` и
+  `candidate_artifact_source_for_missing:<id>` означают, что provenance
+  объявлен в контракте, но не записан в artifact;
+- `candidate_artifact_relation_target_missing:<id>:<field>:<target>` означает,
+  что `source_for` / `derived_from` ссылается на отсутствующий
+  candidate/internal artifact.
+
+Проверки:
+
+- `working_memory.output_contract.outputs`;
+- `finalization.candidate_artifacts`;
+- `finalization.internal_artifacts`;
+- `delivery.outputs`;
+- `finalization.output_decision`;
+- `finalization.last_validation_findings`.
+
+Безопасное действие:
+
+- использовать `request-changes` и попросить worker записать missing artifact
+  или исправить явные `id` / `role` / `media_type` / relation fields;
+- не выводить source artifact из `.md`, `.html`, `.pdf`, имени файла или
+  похожего текста.
+
+### Legacy `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
 
 Значение:
 

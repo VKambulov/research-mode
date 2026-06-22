@@ -43,7 +43,7 @@ from research_mode_query_commands import (
     status_command,
     summary_command,
 )
-from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
+from research_mode_legacy_deliverables import LEGACY_DELIVERABLE_KINDS
 from research_mode_registry import (
     resolve_task_from_args,
 )
@@ -61,6 +61,7 @@ from research_mode_utils import (
 )
 
 SCRIPT_PATH = Path(__file__).resolve()
+DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
 SKILL_DIR = SCRIPT_PATH.parent.parent
 WORKSPACE_ROOT = SKILL_DIR.parent.parent
 DEFAULT_RESEARCH_ROOT = WORKSPACE_ROOT / "research"
@@ -122,6 +123,17 @@ def build_parser() -> argparse.ArgumentParser:
             help="Explicitly create the task without notification owner binding",
         )
 
+    def add_output_arguments(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--output",
+            action="append",
+            default=None,
+            help=(
+                "Repeatable output spec: "
+                "id=report,role=primary_deliverable,media_type=application/pdf"
+            ),
+        )
+
     create = subparsers.add_parser(
         "create", help="Create a new research task", parents=[root_parent]
     )
@@ -160,9 +172,10 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(create)
     create.add_argument(
         "--corpus-mode",
         default="web",
@@ -223,9 +236,10 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(start)
     start.add_argument(
         "--corpus-mode",
         default="web",
@@ -245,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the default preflight phase (not recommended; records a visible warning)",
     )
     start.add_argument("--every", default="5m")
-    start.add_argument("--timeout-seconds", type=int, default=900)
+    start.add_argument("--timeout-seconds", type=int, default=DEFAULT_WORKER_TIMEOUT_SECONDS)
     start.add_argument("--thinking", default="high")
     start.add_argument("--agent", default=None)
     start.add_argument("--model", default=None)
@@ -622,9 +636,10 @@ def build_parser() -> argparse.ArgumentParser:
     mutate.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(mutate)
     mutate.add_argument(
         "--clear-deliverable",
         action="store_true",
@@ -669,9 +684,10 @@ def build_parser() -> argparse.ArgumentParser:
             alias.add_argument(
                 "--kind",
                 default=None,
-                choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-                help="Set the structured desired deliverable kind",
+                choices=sorted(LEGACY_DELIVERABLE_KINDS),
+                help="Deprecated legacy single-output kind",
             )
+            add_output_arguments(alias)
         alias.set_defaults(func=steering_alias_command, action=action_name)
 
     list_cmd = subparsers.add_parser(
@@ -785,6 +801,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional attachment path (may be specified multiple times)",
     )
     mark_delivered.add_argument(
+        "--output",
+        action="append",
+        default=None,
+        help=(
+            "Repeatable delivered output: "
+            "id=report,path=workspace/outputs/report.pdf,role=primary_deliverable"
+        ),
+    )
+    mark_delivered.add_argument(
         "--ready",
         action="store_true",
         help="Mark the delivery as ready for user consumption",
@@ -806,7 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--id")
     schedule.add_argument("--path")
     schedule.add_argument("--every", default="5m")
-    schedule.add_argument("--timeout-seconds", type=int, default=900)
+    schedule.add_argument("--timeout-seconds", type=int, default=DEFAULT_WORKER_TIMEOUT_SECONDS)
     schedule.add_argument("--thinking", default="high")
     schedule.add_argument("--agent", default=None)
     schedule.add_argument("--model", default=None)
@@ -933,6 +958,7 @@ def create_research(args: argparse.Namespace) -> int:
             "task_dir": str(task.task_dir),
             "state_path": str(task.state_path),
             "corpus_mode": (state.get("corpus") or {}).get("mode"),
+            "working_memory": state.get("working_memory") or {},
             "worker_prompt_hint": f"python3 {SCRIPT_PATH} render-prompt --root {args.root} --id {research_id}",
         }
     )
@@ -996,6 +1022,7 @@ def start_research(args: argparse.Namespace) -> int:
                 "id": research_id,
                 "task_dir": str(task.task_dir),
                 "state_path": str(task.state_path),
+                "working_memory": state.get("working_memory") or {},
                 "schedule": scheduled,
             }
         )
@@ -1012,6 +1039,7 @@ def start_research(args: argparse.Namespace) -> int:
                 "task_dir": str(task.task_dir),
                 "state_path": str(task.state_path),
                 "corpus_mode": (state.get("corpus") or {}).get("mode"),
+                "working_memory": state.get("working_memory") or {},
                 "worker_prompt_hint": f"python3 {SCRIPT_PATH} render-prompt --root {args.root} --id {research_id}",
             }
         )
@@ -1048,11 +1076,13 @@ def format_delivery_command(args: argparse.Namespace) -> int:
     from research_mode_surface_delivery import format_for_channel
 
     content = args.content
+    delivery_outputs: list[dict[str, object]] = []
     if content is None:
         task = resolve_task_from_args(
             Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
         )
         state = task.read_state()
+        delivery_outputs = list((state.get("delivery") or {}).get("outputs") or [])
         final_report_path = state.get("artifacts", {}).get("final_report_path")
         if final_report_path and Path(final_report_path).exists():
             content = Path(final_report_path).read_text(encoding="utf-8")
@@ -1070,6 +1100,8 @@ def format_delivery_command(args: argparse.Namespace) -> int:
         summary=args.summary,
         deliverable_path=args.deliverable_path,
     )
+    if delivery_outputs:
+        result["outputs"] = delivery_outputs
 
     json_dump(result)
     return 0

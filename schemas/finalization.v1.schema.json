@@ -9,6 +9,7 @@
   "properties": {
     "status": {"type": "string"},
     "primary_deliverable_kind": {
+      "description": "Legacy single-output deliverable kind. New tasks should prefer output_decision and output_contract.outputs.",
       "type": ["string", "null"],
       "enum": [
         null,
@@ -23,6 +24,7 @@
       ]
     },
     "deliverable_decision": {
+      "description": "Legacy single-kind format decision. New structured output tasks should prefer output_decision.",
       "type": ["object", "null"],
       "additionalProperties": true,
       "properties": {
@@ -34,8 +36,49 @@
         "alternatives_considered": {"type": "array", "items": {"type": "string"}}
       }
     },
-    "candidate_artifacts": {"type": "array"},
-    "internal_artifacts": {"type": "array"},
+    "output_decision": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "source": {"type": ["string", "null"]},
+        "selected_output_id": {"type": ["string", "null"]},
+        "primary_output_id": {"type": ["string", "null"]},
+        "required_output_ids": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": ["string", "null"]}
+      }
+    },
+    "candidate_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string"},
+          "path": {"type": "string"},
+          "role": {"type": "string"},
+          "visibility": {"type": "string"},
+          "media_type": {"type": "string"},
+          "source_for": {"type": "string"},
+          "derived_from": {"type": "string"}
+        }
+      }
+    },
+    "internal_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string"},
+          "path": {"type": "string"},
+          "role": {"type": "string"},
+          "visibility": {"type": "string"},
+          "media_type": {"type": "string"},
+          "source_for": {"type": "string"},
+          "derived_from": {"type": "string"}
+        }
+      }
+    },
     "validation_evidence": {"type": "array"},
     "blocking_defects": {"type": "array"},
     "nonblocking_defects": {"type": "array"},

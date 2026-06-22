@@ -9,6 +9,7 @@ from research_mode_corpus import list_corpus_entries
 from research_mode_adequacy import build_adequacy_contract, build_adequacy_guidance
 from research_mode_finalization import (
     build_finalization_contract,
+    build_output_decision,
     check_deliverable_format_decision,
     inspect_candidate_artifacts,
 )
@@ -151,10 +152,12 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
         "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, choose the recipient and primary deliverable kind, draft the deliverable, inspect it as the recipient, fix blocking defects, and record the trace in result.finalization.",
         "Synthesis notes, raw JSON/CSV/XLSX, SQLite dumps, iteration logs, and workspace files are internal artifacts until they are turned into a user-facing deliverable.",
         "List internal work in result.finalization.internal_artifacts; list only reviewable outputs in result.finalization.candidate_artifacts.",
-        "For each candidate artifact, set visibility='user_facing' or visibility='internal' and set role='primary' for the main reviewable output.",
+        "For each candidate artifact, set id, path, role, visibility, and media_type when known. Use role='primary_deliverable' for the main reviewable output when output_contract.outputs is present; legacy single-kind tasks may still use role='primary'.",
         "Set result.finalization.status='passed' only when blocking_defects is empty and validation_evidence records what was actually checked.",
         "Keep delivery.review_ready separate from delivery.ready: worker finalization can reach review, but approval or mark-delivered makes it delivery-ready.",
-        "For multi-file or directory deliverables, expose one package candidate: set primary_deliverable_kind='package' and use a single candidate_artifacts entry for workspace/outputs/<package-name> with kind='final_package' or kind='package'. Do not list each package file as separate final candidate artifacts.",
+        "For multiple reviewable outputs, list each required user-facing output in working_memory.output_contract.outputs with id, role, required, media_type, and optional relation fields; then list produced files in result.finalization.candidate_artifacts with matching id, role, media_type, path, visibility, and optional relation fields.",
+        "Use source_for and derived_from to declare artifact provenance by id when one artifact is the editable/provenance source for another or was generated from another. Do not call a lifecycle summary an editable source unless it is actually the declared source artifact for that output.",
+        "Directory/package outputs are still allowed when explicitly useful, but they are one possible container shape, not the default substitute for multiple reviewable outputs.",
     ]
     if deliverable:
         guidance.append(
@@ -832,7 +835,9 @@ def should_notify(
     policy = payload["notify_recommendation"]
     if policy == "silent":
         return False
-    if policy in {"blocker", "final", "milestone"}:
+    if policy == "final":
+        return next_status in {"awaiting_review", "complete"}
+    if policy in {"blocker", "milestone"}:
         return True
     if next_status in {"complete", "failed", "cancelled"}:
         return True
@@ -870,6 +875,7 @@ def validate_candidate_final(
         final_report_path=task.final_report_path,
         finalization=payload.get("finalization"),
         report_markdown=report_markdown,
+        output_contract=working_memory.get("output_contract") or {},
     )
     findings.append(artifact_check)
     if not artifact_check["passed"]:
@@ -884,6 +890,15 @@ def validate_candidate_final(
     findings.append(format_decision_check)
     if not format_decision_check["passed"]:
         all_passed = False
+    output_decision = build_output_decision(
+        output_contract=working_memory.get("output_contract") or {},
+        finalization=payload.get("finalization"),
+    )
+    structured_output_final = (
+        artifact_check.get("mode") == "output_contract"
+        and artifact_check.get("passed")
+        and bool(output_decision)
+    )
 
     primary_kind = str(
         (payload.get("finalization") or {}).get("primary_deliverable_kind") or ""
@@ -905,16 +920,37 @@ def validate_candidate_final(
                 "reasons": [],
             }
         )
+    elif structured_output_final:
+        findings.append(
+            {
+                "check": "deliverable_quality",
+                "passed": True,
+                "reasons": [],
+                "skipped": True,
+                "reason": "Structured output artifact inspection is authoritative for reviewable output quality.",
+            }
+        )
     else:
         deliverable_check = _check_deliverable_quality(report_markdown)
         findings.append(deliverable_check)
         if not deliverable_check["passed"]:
             all_passed = False
 
-    human_readiness_check = _check_human_readiness(report_markdown)
-    findings.append(human_readiness_check)
-    if not human_readiness_check["passed"]:
-        all_passed = False
+    if structured_output_final:
+        findings.append(
+            {
+                "check": "human_readiness",
+                "passed": True,
+                "reasons": [],
+                "skipped": True,
+                "reason": "Structured output artifact inspection confirmed the reviewable deliverable.",
+            }
+        )
+    else:
+        human_readiness_check = _check_human_readiness(report_markdown)
+        findings.append(human_readiness_check)
+        if not human_readiness_check["passed"]:
+            all_passed = False
 
     manifest_check = _check_delivery_manifest(state)
     findings.append(manifest_check)
@@ -951,6 +987,7 @@ def validate_candidate_final(
             )
             if key in format_decision_check
         },
+        "output_decision": output_decision,
     }
 
 
