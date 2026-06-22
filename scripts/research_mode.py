@@ -800,6 +800,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional attachment path (may be specified multiple times)",
     )
     mark_delivered.add_argument(
+        "--output",
+        action="append",
+        default=None,
+        help=(
+            "Repeatable delivered output: "
+            "id=report,path=workspace/outputs/report.pdf,role=primary_deliverable"
+        ),
+    )
+    mark_delivered.add_argument(
         "--ready",
         action="store_true",
         help="Mark the delivery as ready for user consumption",
@@ -1066,11 +1075,13 @@ def format_delivery_command(args: argparse.Namespace) -> int:
     from research_mode_surface_delivery import format_for_channel
 
     content = args.content
+    delivery_outputs: list[dict[str, object]] = []
     if content is None:
         task = resolve_task_from_args(
             Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
         )
         state = task.read_state()
+        delivery_outputs = list((state.get("delivery") or {}).get("outputs") or [])
         final_report_path = state.get("artifacts", {}).get("final_report_path")
         if final_report_path and Path(final_report_path).exists():
             content = Path(final_report_path).read_text(encoding="utf-8")
@@ -1088,6 +1099,8 @@ def format_delivery_command(args: argparse.Namespace) -> int:
         summary=args.summary,
         deliverable_path=args.deliverable_path,
     )
+    if delivery_outputs:
+        result["outputs"] = delivery_outputs
 
     json_dump(result)
     return 0

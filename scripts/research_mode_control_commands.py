@@ -25,6 +25,7 @@ from research_mode_lifecycle_helpers import clear_reviewable_candidate
 from research_mode_payloads import (
     normalize_output_contract,
     normalize_string_list,
+    parse_output_artifact_arg,
     parse_output_spec_arg,
 )
 from research_mode_queue import release_global_queue
@@ -1006,6 +1007,21 @@ def _validate_attachment_path(attachment: str, task: ResearchTask) -> str:
     return str(path)
 
 
+def _build_delivery_outputs(
+    raw_outputs: list[str],
+    task: ResearchTask,
+) -> list[dict[str, Any]]:
+    outputs = [parse_output_artifact_arg(item) for item in raw_outputs]
+    primary_count = sum(1 for item in outputs if item.get("role") == "primary_deliverable")
+    if outputs and primary_count != 1:
+        raise ValidationError("delivery outputs must declare exactly one primary_deliverable")
+    result: list[dict[str, Any]] = []
+    for item in outputs:
+        validated_path = _validate_primary_file_path(str(item.get("path") or ""), task)
+        result.append({**item, "path": validated_path})
+    return result
+
+
 def approve_command(args: argparse.Namespace) -> int:
     task = resolve_task_from_args(
         Path(args.root).expanduser().resolve(), research_id=args.id, path=args.path
@@ -1260,11 +1276,25 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
 
     explicit_primary_file = getattr(args, "primary_file", None)
     ready_flag = getattr(args, "ready", False)
+    structured_outputs = _build_delivery_outputs(
+        getattr(args, "output", None) or [],
+        task,
+    )
+    structured_primary = next(
+        (
+            item
+            for item in structured_outputs
+            if item.get("role") == "primary_deliverable"
+        ),
+        None,
+    )
 
     if explicit_primary_file is not None:
         validated_primary = _validate_primary_file_path(
             str(explicit_primary_file), task
         )
+    elif structured_primary is not None:
+        validated_primary = str(structured_primary.get("path") or "")
     else:
         validated_primary = None
 
@@ -1284,6 +1314,14 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
         delivery = state.setdefault("delivery", {})
         if explicit_primary_file is not None:
             delivery["primary_file"] = validated_primary
+        if structured_outputs:
+            delivery["outputs"] = structured_outputs
+            delivery["primary_file"] = validated_primary
+            delivery["attachments"] = [
+                str(item.get("path") or "")
+                for item in structured_outputs
+                if item.get("role") != "primary_deliverable" and item.get("path")
+            ]
         if getattr(args, "summary_text", None) is not None:
             delivery["summary_text"] = str(args.summary_text).strip()
         if getattr(args, "channel_strategy", None) is not None:
@@ -1311,6 +1349,7 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
             "status": state_after.get("status"),
             "task_id": state_after.get("id"),
             "delivery_ready": delivery_after.get("ready", False),
+            "outputs": delivery_after.get("outputs") or [],
             "primary_file": delivery_after.get("primary_file"),
             "attachments": delivery_after.get("attachments") or [],
             "summary_text": delivery_after.get("summary_text"),

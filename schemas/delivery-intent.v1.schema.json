@@ -24,6 +24,20 @@
       }
     },
     "update_text": {"type": ["string", "null"]},
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "path", "role"],
+        "properties": {
+          "id": {"type": "string"},
+          "path": {"type": "string"},
+          "role": {"type": "string"},
+          "media_type": {"type": "string"}
+        }
+      }
+    },
     "primary_file": {"type": ["string", "null"]},
     "attachments": {"type": "array", "items": {"type": "string"}},
     "blocked_reason": {"type": ["string", "null"]},

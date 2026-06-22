@@ -279,6 +279,25 @@ def parse_output_spec_arg(raw: str) -> dict[str, Any]:
     return normalize_output_spec(result, "output")
 
 
+def parse_output_artifact_arg(raw: str) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for part in str(raw or "").split(","):
+        key, sep, value = part.partition("=")
+        if not sep:
+            raise ValidationError("output artifact entries must use key=value")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValidationError("output artifact key cannot be empty")
+        result[key] = value
+    output = normalize_output_spec(result, "output")
+    path = str(result.get("path") or "").strip()
+    if not path:
+        raise ValidationError("output.path is required")
+    output["path"] = path
+    return output
+
+
 def normalize_output_contract(value: Any) -> dict[str, Any]:
     if value in (None, ""):
         return output_contract_defaults()
@@ -733,6 +752,7 @@ def build_initial_state(
             "milestone_every_iterations": args.milestone_every,
             "last_update_at": None,
             "sent_updates": 0,
+            "outputs": [],
             "primary_file": None,
             "attachments": [],
             "summary_text": None,

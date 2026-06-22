@@ -1634,6 +1634,88 @@ def test_mark_delivered_command(root: Path) -> None:
     )
 
 
+def test_mark_delivered_accepts_structured_outputs(root: Path) -> None:
+    task_id = "delivery-output-files"
+    run("create", "--root", str(root), "--id", task_id, "--goal", "Prepare outputs")
+    task_dir = root / task_id
+    out_dir = task_dir / "workspace" / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (out_dir / "sources.xlsx").write_bytes(b"readable")
+
+    state_path = task_dir / "state.json"
+    state = json.loads(state_path.read_text())
+    state["working_memory"]["output_contract"] = {
+        "outputs": [
+            {
+                "id": "report",
+                "role": "primary_deliverable",
+                "media_type": "application/pdf",
+            },
+            {
+                "id": "sources",
+                "role": "supporting_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+        "quality_checks": [],
+        "search_profile": None,
+    }
+    state["finalization"] = {
+        **state["finalization"],
+        "status": "passed",
+        "candidate_artifacts": [
+            {
+                "id": "report",
+                "path": "workspace/outputs/report.pdf",
+                "role": "primary_deliverable",
+                "media_type": "application/pdf",
+            },
+            {
+                "id": "sources",
+                "path": "workspace/outputs/sources.xlsx",
+                "role": "supporting_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+    }
+    state["status"] = "awaiting_review"
+    state["delivery"]["review_ready"] = True
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+    delivered = json_out(
+        run(
+            "mark-delivered",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--output",
+            "id=report,path=workspace/outputs/report.pdf,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,path=workspace/outputs/sources.xlsx,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--ready",
+        )
+    )
+
+    assert_eq(
+        delivered["primary_file"],
+        str(out_dir / "report.pdf"),
+        "primary_file should mirror the primary structured output",
+    )
+    assert_eq(
+        delivered["attachments"],
+        [str(out_dir / "sources.xlsx")],
+        "attachments should mirror supporting structured outputs",
+    )
+    status = json_out(run("status", "--root", str(root), "--id", task_id))
+    assert_eq(
+        [item["id"] for item in status["delivery"]["outputs"]],
+        ["report", "sources"],
+        "status should expose structured delivery outputs",
+    )
+
+
 def test_mark_delivered_succeeds_with_valid_relative_primary_file(root: Path) -> None:
     json_out(
         run(
