@@ -34,8 +34,38 @@
         "alternatives_considered": {"type": "array", "items": {"type": "string"}}
       }
     },
-    "candidate_artifacts": {"type": "array"},
-    "internal_artifacts": {"type": "array"},
+    "candidate_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string"},
+          "path": {"type": "string"},
+          "role": {"type": "string"},
+          "visibility": {"type": "string"},
+          "media_type": {"type": "string"},
+          "source_for": {"type": "string"},
+          "derived_from": {"type": "string"}
+        }
+      }
+    },
+    "internal_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string"},
+          "path": {"type": "string"},
+          "role": {"type": "string"},
+          "visibility": {"type": "string"},
+          "media_type": {"type": "string"},
+          "source_for": {"type": "string"},
+          "derived_from": {"type": "string"}
+        }
+      }
+    },
     "validation_evidence": {"type": "array"},
     "blocking_defects": {"type": "array"},
     "nonblocking_defects": {"type": "array"},

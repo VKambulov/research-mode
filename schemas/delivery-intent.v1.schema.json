@@ -34,7 +34,9 @@
           "id": {"type": "string"},
           "path": {"type": "string"},
           "role": {"type": "string"},
-          "media_type": {"type": "string"}
+          "media_type": {"type": "string"},
+          "source_for": {"type": "string"},
+          "derived_from": {"type": "string"}
         }
       }
     },

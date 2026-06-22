@@ -384,11 +384,13 @@ def inspect_candidate_artifacts(
 ) -> dict[str, Any]:
     trace = finalization or {}
     candidate_artifacts = trace.get("candidate_artifacts") or []
+    internal_artifacts = trace.get("internal_artifacts") or []
     expected_outputs = (output_contract or {}).get("outputs") or []
     if expected_outputs:
         return _inspect_output_contract_artifacts(
             task_dir=task_dir,
             candidate_artifacts=candidate_artifacts,
+            internal_artifacts=internal_artifacts,
             expected_outputs=expected_outputs,
         )
 
@@ -524,19 +526,26 @@ def _inspect_output_contract_artifacts(
     *,
     task_dir: Path,
     candidate_artifacts: list[dict[str, Any]],
+    internal_artifacts: list[dict[str, Any]],
     expected_outputs: list[dict[str, Any]],
 ) -> dict[str, Any]:
     checked: list[dict[str, Any]] = []
     reasons: list[str] = []
     candidates_by_id: dict[str, dict[str, Any]] = {}
+    graph_ids: set[str] = set()
     for artifact in candidate_artifacts:
         artifact_id = str(artifact.get("id") or "").strip()
         if not artifact_id:
             reasons.append("candidate_artifact_id_missing")
             checked.append({**artifact, "exists": False, "reasons": ["candidate_artifact_id_missing"]})
             continue
+        graph_ids.add(artifact_id)
         if artifact_id not in candidates_by_id:
             candidates_by_id[artifact_id] = artifact
+    for artifact in internal_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if artifact_id:
+            graph_ids.add(artifact_id)
 
     for expected in expected_outputs:
         output_id = str(expected.get("id") or "").strip()
@@ -569,6 +578,33 @@ def _inspect_output_contract_artifacts(
             elif candidate_media_type != expected_media_type:
                 reasons.append(f"candidate_artifact_media_type_mismatch:{output_id}")
 
+        for field in ("derived_from", "source_for"):
+            expected_relation = str(expected.get(field) or "").strip()
+            candidate_relation = str(candidate.get(field) or "").strip()
+            if expected_relation:
+                if not candidate_relation:
+                    reasons.append(f"candidate_artifact_{field}_missing:{output_id}")
+                elif candidate_relation != expected_relation:
+                    reasons.append(f"candidate_artifact_{field}_mismatch:{output_id}")
+            relation_target = candidate_relation or expected_relation
+            if relation_target and relation_target not in graph_ids:
+                reasons.append(
+                    f"candidate_artifact_relation_target_missing:"
+                    f"{output_id}:{field}:{relation_target}"
+                )
+
+    for artifact in internal_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if not artifact_id:
+            continue
+        for field in ("derived_from", "source_for"):
+            relation_target = str(artifact.get(field) or "").strip()
+            if relation_target and relation_target not in graph_ids:
+                reasons.append(
+                    f"internal_artifact_relation_target_missing:"
+                    f"{artifact_id}:{field}:{relation_target}"
+                )
+
     deduped_reasons = list(dict.fromkeys(reasons))
     return {
         "check": "candidate_artifact_inspection",
@@ -591,6 +627,8 @@ def _inspect_declared_output_artifact(
         "path": artifact_path,
         "role": str(artifact.get("role") or "").strip() or None,
         "media_type": str(artifact.get("media_type") or "").strip() or None,
+        "source_for": str(artifact.get("source_for") or "").strip() or None,
+        "derived_from": str(artifact.get("derived_from") or "").strip() or None,
     }
     reasons: list[str] = []
     if not artifact_path:

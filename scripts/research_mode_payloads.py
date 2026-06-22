@@ -26,6 +26,7 @@ OUTPUT_ROLES = {
 }
 
 SAFE_OUTPUT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
+ARTIFACT_RELATION_FIELDS = ("source_for", "derived_from")
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -142,6 +143,20 @@ def _normalize_typed_artifacts(value: Any, label: str) -> list[dict[str, Any]]:
         artifact_role = str(item.get("role") or "").strip()
         if artifact_role:
             entry["role"] = artifact_role
+        artifact_id = str(item.get("id") or "").strip()
+        if artifact_id:
+            if not SAFE_OUTPUT_ID_RE.fullmatch(artifact_id):
+                raise ValidationError(f"{label}.id must be a safe artifact id")
+            entry["id"] = artifact_id
+        media_type = str(item.get("media_type") or "").strip()
+        if media_type:
+            entry["media_type"] = media_type
+        for field in ARTIFACT_RELATION_FIELDS:
+            relation = str(item.get(field) or "").strip()
+            if relation:
+                if not SAFE_OUTPUT_ID_RE.fullmatch(relation):
+                    raise ValidationError(f"{label}.{field} must be a safe artifact id")
+                entry[field] = relation
         result.append(entry)
     return result
 
@@ -234,6 +249,12 @@ def normalize_output_spec(value: Any, label: str) -> dict[str, Any]:
     description = str(value.get("description") or "").strip()
     if description:
         result["description"] = description
+    for field in ARTIFACT_RELATION_FIELDS:
+        relation = str(value.get(field) or "").strip()
+        if relation:
+            if not SAFE_OUTPUT_ID_RE.fullmatch(relation):
+                raise ValidationError(f"{label}.{field} must be a safe artifact id")
+            result[field] = relation
     return result
 
 

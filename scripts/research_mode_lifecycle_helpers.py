@@ -151,10 +151,12 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
         "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, choose the recipient and primary deliverable kind, draft the deliverable, inspect it as the recipient, fix blocking defects, and record the trace in result.finalization.",
         "Synthesis notes, raw JSON/CSV/XLSX, SQLite dumps, iteration logs, and workspace files are internal artifacts until they are turned into a user-facing deliverable.",
         "List internal work in result.finalization.internal_artifacts; list only reviewable outputs in result.finalization.candidate_artifacts.",
-        "For each candidate artifact, set visibility='user_facing' or visibility='internal' and set role='primary' for the main reviewable output.",
+        "For each candidate artifact, set id, path, role, visibility, and media_type when known. Use role='primary_deliverable' for the main reviewable output when output_contract.outputs is present; legacy single-kind tasks may still use role='primary'.",
         "Set result.finalization.status='passed' only when blocking_defects is empty and validation_evidence records what was actually checked.",
         "Keep delivery.review_ready separate from delivery.ready: worker finalization can reach review, but approval or mark-delivered makes it delivery-ready.",
-        "For multi-file or directory deliverables, expose one package candidate: set primary_deliverable_kind='package' and use a single candidate_artifacts entry for workspace/outputs/<package-name> with kind='final_package' or kind='package'. Do not list each package file as separate final candidate artifacts.",
+        "For multiple reviewable outputs, list each required user-facing output in working_memory.output_contract.outputs with id, role, required, media_type, and optional relation fields; then list produced files in result.finalization.candidate_artifacts with matching id, role, media_type, path, visibility, and optional relation fields.",
+        "Use source_for and derived_from to declare artifact provenance by id when one artifact is the editable/provenance source for another or was generated from another. Do not call a lifecycle summary an editable source unless it is actually the declared source artifact for that output.",
+        "Directory/package outputs are still allowed when explicitly useful, but they are one possible container shape, not the default substitute for multiple reviewable outputs.",
     ]
     if deliverable:
         guidance.append(

@@ -127,6 +127,28 @@ def test_output_contract_keeps_legacy_kind_but_prefers_outputs() -> None:
     assert contract["outputs"][0]["id"] == "report"
 
 
+def test_output_contract_preserves_open_relation_fields() -> None:
+    contract = normalize_output_contract(
+        {
+            "outputs": [
+                {
+                    "id": "report_pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "report_source",
+                },
+                {
+                    "id": "report_source",
+                    "role": "supporting_artifact",
+                    "source_for": "report_pdf",
+                },
+            ]
+        }
+    )
+
+    assert contract["outputs"][0]["derived_from"] == "report_source"
+    assert contract["outputs"][1]["source_for"] == "report_pdf"
+
+
 def test_create_accepts_repeatable_output_specs(root) -> None:
     created = json_out(
         run(
@@ -280,3 +302,186 @@ def test_candidate_artifact_missing_declared_media_type_fails(tmp_path: Path) ->
     )
 
     assert "candidate_artifact_media_type_missing:report" in result["reasons"]
+
+
+def test_candidate_artifact_relations_are_checked_by_id(tmp_path: Path) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (output_dir / "report.md").write_text("# Report\n", encoding="utf-8")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report_pdf",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                    "derived_from": "report_source",
+                },
+                {
+                    "id": "report_source",
+                    "path": "workspace/outputs/report.md",
+                    "role": "supporting_artifact",
+                    "media_type": "text/markdown",
+                    "source_for": "report_pdf",
+                },
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report_pdf",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                    "derived_from": "report_source",
+                },
+                {
+                    "id": "report_source",
+                    "role": "supporting_artifact",
+                    "media_type": "text/markdown",
+                    "source_for": "report_pdf",
+                },
+            ]
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["reasons"] == []
+
+
+def test_internal_artifact_can_be_relation_target_without_delivery_output(
+    tmp_path: Path,
+) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (output_dir / "report.html").write_text("<h1>Report</h1>\n", encoding="utf-8")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report_pdf",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "report_html",
+                }
+            ],
+            "internal_artifacts": [
+                {
+                    "id": "report_html",
+                    "path": "workspace/outputs/report.html",
+                    "role": "supporting_artifact",
+                    "visibility": "internal",
+                }
+            ],
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report_pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "report_html",
+                }
+            ]
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["reasons"] == []
+
+
+def test_candidate_artifact_relation_target_must_exist(tmp_path: Path) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report_pdf",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "missing_source",
+                }
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report_pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "missing_source",
+                }
+            ]
+        },
+    )
+
+    assert result["passed"] is False
+    assert (
+        "candidate_artifact_relation_target_missing:report_pdf:derived_from:missing_source"
+        in result["reasons"]
+    )
+
+
+def test_candidate_artifact_relations_are_not_inferred_from_extensions(
+    tmp_path: Path,
+) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (output_dir / "report.md").write_text("# Report\n", encoding="utf-8")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report_pdf",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                },
+                {
+                    "id": "report_source",
+                    "path": "workspace/outputs/report.md",
+                    "role": "supporting_artifact",
+                },
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report_pdf",
+                    "role": "primary_deliverable",
+                    "derived_from": "report_source",
+                },
+                {
+                    "id": "report_source",
+                    "role": "supporting_artifact",
+                    "source_for": "report_pdf",
+                },
+            ]
+        },
+    )
+
+    assert result["passed"] is False
+    assert "candidate_artifact_derived_from_missing:report_pdf" in result["reasons"]
+    assert "candidate_artifact_source_for_missing:report_source" in result["reasons"]
