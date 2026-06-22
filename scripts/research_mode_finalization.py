@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
+import research_mode_legacy_deliverables as legacy_deliverables
 from research_mode_utils import ValidationError, is_relative_to, resolve_under_task
 
 
@@ -25,22 +25,9 @@ FINALIZATION_REQUIRED_TRACE_FIELDS = [
 
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
-EXPECTED_FORMATS_BY_PRIMARY_KIND = {
-    "markdown_report": {"markdown"},
-    "pdf_report": {"pdf"},
-    "docx_report": {"docx"},
-    "html_report": {"html", "htm"},
-    "xlsx": {"xlsx"},
-    "csv": {"csv"},
-    "package": {"package"},
-}
-
 
 def expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
-    return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
-        str(primary_kind or "").strip().lower(),
-        set(),
-    )
+    return legacy_deliverables.expected_formats_for_kind(primary_kind)
 
 
 def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
@@ -64,22 +51,8 @@ def _canonical_deliverable_kind(kind: str | None) -> str | None:
     cleaned = str(kind or "").strip().lower()
     if not cleaned:
         return None
-    if cleaned in CANONICAL_DELIVERABLE_KINDS:
+    if cleaned in legacy_deliverables.LEGACY_DELIVERABLE_KINDS:
         return cleaned
-    return None
-
-
-def _format_to_deliverable_kind(artifact_format: str) -> str | None:
-    if artifact_format == "package":
-        return "package"
-    if artifact_format in {"markdown", "md"}:
-        return "markdown_report"
-    if artifact_format in {"pdf", "docx"}:
-        return f"{artifact_format}_report"
-    if artifact_format in {"html", "htm"}:
-        return "html_report"
-    if artifact_format in {"xlsx", "csv"}:
-        return artifact_format
     return None
 
 
@@ -94,10 +67,10 @@ def _artifact_format_kind(
         for artifact in artifacts:
             artifact_format = str(artifact.get("format") or "").strip().lower()
             if artifact_format in expected_formats:
-                return _format_to_deliverable_kind(artifact_format)
+                return legacy_deliverables.kind_for_artifact_format(artifact_format)
     for artifact in (artifact_check or {}).get("artifacts") or []:
         artifact_format = str(artifact.get("format") or "").strip().lower()
-        deliverable_kind = _format_to_deliverable_kind(artifact_format)
+        deliverable_kind = legacy_deliverables.kind_for_artifact_format(artifact_format)
         if deliverable_kind:
             return deliverable_kind
     return None

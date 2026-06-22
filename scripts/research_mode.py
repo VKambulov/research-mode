@@ -43,7 +43,7 @@ from research_mode_query_commands import (
     status_command,
     summary_command,
 )
-from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
+from research_mode_legacy_deliverables import LEGACY_DELIVERABLE_KINDS
 from research_mode_registry import (
     resolve_task_from_args,
 )
@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
         help="Deprecated legacy single-output kind",
     )
     add_output_arguments(create)
@@ -235,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
         help="Deprecated legacy single-output kind",
     )
     add_output_arguments(start)
@@ -635,7 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
     mutate.add_argument(
         "--deliverable-kind",
         default=None,
-        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        choices=sorted(LEGACY_DELIVERABLE_KINDS),
         help="Deprecated legacy single-output kind",
     )
     add_output_arguments(mutate)
@@ -683,7 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
             alias.add_argument(
                 "--kind",
                 default=None,
-                choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+                choices=sorted(LEGACY_DELIVERABLE_KINDS),
                 help="Deprecated legacy single-output kind",
             )
             add_output_arguments(alias)

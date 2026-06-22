@@ -24,9 +24,28 @@ DANGEROUS_IDENTIFIERS = [
     "long_formats",
 ]
 
+FORBIDDEN_OUTPUT_CONTRACT_IDENTIFIERS = [
+    "CANONICAL_DELIVERABLE_KINDS",
+    "EXPECTED_FORMATS_BY_PRIMARY_KIND",
+    "_format_to_deliverable_kind",
+    "mimetypes.guess_type",
+    "extension_to_media_type",
+    "media_type_to_extension",
+    "mime_type_to_kind",
+    "format_to_deliverable_kind",
+]
+
 
 def _production_python_files() -> list[Path]:
     return sorted(path for path in SCRIPTS_DIR.glob("research_mode*.py") if path.is_file())
+
+
+def _new_output_contract_python_files() -> list[Path]:
+    return sorted(
+        path
+        for path in _production_python_files()
+        if path.name != "research_mode_legacy_deliverables.py"
+    )
 
 
 def test_language_driven_validation_identifiers_do_not_return() -> None:
@@ -35,6 +54,17 @@ def test_language_driven_validation_identifiers_do_not_return() -> None:
         for path in _production_python_files()
     )
     offenders = [name for name in DANGEROUS_IDENTIFIERS if name in haystack]
+    assert offenders == []
+
+
+def test_output_contract_does_not_use_format_dictionaries() -> None:
+    haystack = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in _new_output_contract_python_files()
+    )
+    offenders = [
+        name for name in FORBIDDEN_OUTPUT_CONTRACT_IDENTIFIERS if name in haystack
+    ]
     assert offenders == []
 
 

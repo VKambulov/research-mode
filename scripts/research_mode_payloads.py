@@ -5,19 +5,9 @@ import copy
 import re
 from typing import Any
 
+from research_mode_legacy_deliverables import LEGACY_DELIVERABLE_KINDS
 from research_mode_task import ResearchTask
 from research_mode_utils import NO_ACTIVE_LEASE, ValidationError, utc_now
-
-CANONICAL_DELIVERABLE_KINDS = {
-    "markdown_report",
-    "pdf_report",
-    "docx_report",
-    "html_report",
-    "xlsx",
-    "csv",
-    "package",
-    "unknown",
-}
 
 OUTPUT_ROLES = {
     "primary_deliverable",
@@ -329,8 +319,8 @@ def normalize_output_contract(value: Any) -> dict[str, Any]:
     kind = value.get("kind")
     if kind not in (None, ""):
         kind = str(kind).strip()
-        if kind not in CANONICAL_DELIVERABLE_KINDS:
-            allowed = ", ".join(sorted(CANONICAL_DELIVERABLE_KINDS))
+        if kind not in LEGACY_DELIVERABLE_KINDS:
+            allowed = ", ".join(sorted(LEGACY_DELIVERABLE_KINDS))
             raise ValidationError(f"Unsupported output_contract.kind: {kind}. Allowed: {allowed}")
         result["kind"] = kind
     outputs = value.get("outputs")
