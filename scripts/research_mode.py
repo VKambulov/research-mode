@@ -122,6 +122,17 @@ def build_parser() -> argparse.ArgumentParser:
             help="Explicitly create the task without notification owner binding",
         )
 
+    def add_output_arguments(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--output",
+            action="append",
+            default=None,
+            help=(
+                "Repeatable output spec: "
+                "id=report,role=primary_deliverable,media_type=application/pdf"
+            ),
+        )
+
     create = subparsers.add_parser(
         "create", help="Create a new research task", parents=[root_parent]
     )
@@ -161,8 +172,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--deliverable-kind",
         default=None,
         choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(create)
     create.add_argument(
         "--corpus-mode",
         default="web",
@@ -224,8 +236,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--deliverable-kind",
         default=None,
         choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(start)
     start.add_argument(
         "--corpus-mode",
         default="web",
@@ -623,8 +636,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--deliverable-kind",
         default=None,
         choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-        help="Set the structured desired deliverable kind",
+        help="Deprecated legacy single-output kind",
     )
+    add_output_arguments(mutate)
     mutate.add_argument(
         "--clear-deliverable",
         action="store_true",
@@ -670,8 +684,9 @@ def build_parser() -> argparse.ArgumentParser:
                 "--kind",
                 default=None,
                 choices=sorted(CANONICAL_DELIVERABLE_KINDS),
-                help="Set the structured desired deliverable kind",
+                help="Deprecated legacy single-output kind",
             )
+            add_output_arguments(alias)
         alias.set_defaults(func=steering_alias_command, action=action_name)
 
     list_cmd = subparsers.add_parser(
@@ -933,6 +948,7 @@ def create_research(args: argparse.Namespace) -> int:
             "task_dir": str(task.task_dir),
             "state_path": str(task.state_path),
             "corpus_mode": (state.get("corpus") or {}).get("mode"),
+            "working_memory": state.get("working_memory") or {},
             "worker_prompt_hint": f"python3 {SCRIPT_PATH} render-prompt --root {args.root} --id {research_id}",
         }
     )
@@ -996,6 +1012,7 @@ def start_research(args: argparse.Namespace) -> int:
                 "id": research_id,
                 "task_dir": str(task.task_dir),
                 "state_path": str(task.state_path),
+                "working_memory": state.get("working_memory") or {},
                 "schedule": scheduled,
             }
         )
@@ -1012,6 +1029,7 @@ def start_research(args: argparse.Namespace) -> int:
                 "task_dir": str(task.task_dir),
                 "state_path": str(task.state_path),
                 "corpus_mode": (state.get("corpus") or {}).get("mode"),
+                "working_memory": state.get("working_memory") or {},
                 "worker_prompt_hint": f"python3 {SCRIPT_PATH} render-prompt --root {args.root} --id {research_id}",
             }
         )

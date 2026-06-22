@@ -5,6 +5,8 @@ import pytest
 from research_mode_payloads import normalize_output_contract
 from research_mode_utils import ValidationError
 
+from .helpers import json_out, run
+
 
 def test_output_contract_accepts_open_media_type() -> None:
     contract = normalize_output_contract(
@@ -120,3 +122,42 @@ def test_output_contract_keeps_legacy_kind_but_prefers_outputs() -> None:
 
     assert contract["kind"] == "pdf_report"
     assert contract["outputs"][0]["id"] == "report"
+
+
+def test_create_accepts_repeatable_output_specs(root) -> None:
+    created = json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "multi-output-cli",
+            "--goal",
+            "Prepare report and source workbook",
+            "--output",
+            "id=report,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    )
+
+    outputs = created["working_memory"]["output_contract"]["outputs"]
+    assert [item["id"] for item in outputs] == ["report", "sources"]
+
+
+def test_set_deliverable_accepts_output_spec(root) -> None:
+    run("create", "--root", str(root), "--id", "set-output-cli", "--goal", "Prepare report")
+
+    updated = json_out(
+        run(
+            "set-deliverable",
+            "--root",
+            str(root),
+            "--id",
+            "set-output-cli",
+            "--output",
+            "id=report,role=primary_deliverable,media_type=application/pdf",
+        )
+    )
+
+    assert updated["working_memory"]["output_contract"]["outputs"][0]["id"] == "report"

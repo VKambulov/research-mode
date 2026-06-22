@@ -259,6 +259,26 @@ def normalize_output_specs(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+def parse_output_spec_arg(raw: str) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for part in str(raw or "").split(","):
+        key, sep, value = part.partition("=")
+        if not sep:
+            raise ValidationError("output spec entries must use key=value")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValidationError("output spec key cannot be empty")
+        if key == "required":
+            lowered = value.lower()
+            if lowered not in {"true", "false", "1", "0"}:
+                raise ValidationError("output.required must be true, false, 1, or 0")
+            result[key] = lowered in {"true", "1"}
+        else:
+            result[key] = value
+    return normalize_output_spec(result, "output")
+
+
 def normalize_output_contract(value: Any) -> dict[str, Any]:
     if value in (None, ""):
         return output_contract_defaults()
@@ -686,7 +706,13 @@ def build_initial_state(
                 str(getattr(args, "deliverable", "") or "").strip() or None
             ),
             "output_contract": normalize_output_contract(
-                {"kind": getattr(args, "deliverable_kind", None)}
+                {
+                    "kind": getattr(args, "deliverable_kind", None),
+                    "outputs": [
+                        parse_output_spec_arg(item)
+                        for item in (getattr(args, "output", None) or [])
+                    ],
+                }
             ),
             "contract": None,
             "user_instructions": normalize_string_list(
