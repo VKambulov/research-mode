@@ -23,7 +23,7 @@ operator, or task-specific context.
   `repair_needed`, `manual_review_needed`, `blocked`, and
   `fresh_continuation_recommended`.
 
-### Completed on main after v0.3.0
+### Completed in v0.4.0
 
 - Added the default preflight gate for new tasks, including
   `research-preflight.md`, `--skip-preflight`, visible preflight state in
@@ -31,11 +31,19 @@ operator, or task-specific context.
   `RULES.example.md`.
 - Added `operator_attention` to `summary --format json` so monitors can
   identify stale active runs and follow a clear recovery action.
+
+### Completed in v0.5.0
+
 - Added the initial stability diagnostics line: reliability counters,
   repeated completion-validation loop detection, structural comparative
   validation, delivery handoff/channel diagnostics, default deliverable format
   decisions, queue mismatch findings, and deterministic reliability soak
   coverage.
+- Added structured output artifact contracts with explicit
+  `output_contract.outputs[]`, candidate artifact ids, `delivery.outputs`, and
+  provenance relations instead of relying on a single primary deliverable kind.
+- Deprecated legacy single-output fields for new tasks while preserving
+  compatibility for older states.
 - Updated public status messaging to make research stability, observability,
   and recovery the current project priority.
 
@@ -103,18 +111,26 @@ Roadmap ниже описывает публичное направление Gi
   `repair_needed`, `manual_review_needed`, `blocked` и
   `fresh_continuation_recommended`.
 
-### Выполнено в main после v0.3.0
+### Выполнено в v0.4.0
 
 - Добавлен preflight gate по умолчанию для новых задач: `research-preflight.md`,
   `--skip-preflight`, видимое состояние preflight в операторских представлениях
   и skill-local `RULES.md` через публичный шаблон `RULES.example.md`.
 - В `summary --format json` добавлен `operator_attention`, чтобы наблюдатели
   могли видеть stale active run и понятное действие для восстановления.
+
+### Выполнено в v0.5.0
+
 - Добавлена начальная линия stability diagnostics: reliability counters,
   detection повторяющихся completion-validation loops, структурная проверка
   сравнительных результатов, delivery handoff/channel diagnostics,
   contract-driven deliverable format decisions, queue mismatch findings и deterministic
   reliability soak coverage.
+- Добавлены structured output artifact contracts с явными
+  `output_contract.outputs[]`, id candidate artifacts, `delivery.outputs` и
+  provenance-связями вместо зависимости от одного primary deliverable kind.
+- Legacy single-output поля помечены как deprecated для новых задач, но
+  совместимость со старыми states сохранена.
 - Публичный статус проекта уточнён: текущий приоритет — стабильность,
   наблюдаемость и восстановимость исследований.
 

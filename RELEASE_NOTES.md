@@ -8,6 +8,10 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+- No changes yet.
+
+### v0.5.0 - 2026-06-22
+
 - Added structured output artifact contracts with
   `working_memory.output_contract.outputs[]`, `finalization.candidate_artifacts`
   matching by explicit id, and `delivery.outputs` as the structured handoff.
@@ -253,6 +257,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
 ## Русский
 
 ### Unreleased
+
+- Пока нет изменений.
+
+### v0.5.0 - 2026-06-22
 
 - Добавлен structured output artifacts contract:
   `working_memory.output_contract.outputs[]`, matching
