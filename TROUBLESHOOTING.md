@@ -170,12 +170,16 @@ Checks:
 - `python3 scripts/research_mode.py queue-status --root <root>`;
 - task `status --format json` and `summary --format text`;
 - `queue.status`, `queue.position`, and `queue.blocked_by_task_id`.
+- queue findings in `queue-status --format json`, especially
+  `queue_holder_task_missing`, `queue_holder_task_lock_mismatch`,
+  `queue_stale_waiter`, and `queue_terminal_task_waiter`.
 
 Safe actions:
 
 - wait for the active task to finish if the holder is fresh;
 - treat `deferred:global-research-lock` as normal waiting, not a failed cron tick;
-- inspect stale queue state before manual repair.
+- inspect queue findings before manual repair; task-specific queue mismatches
+  also appear in `health`.
 
 ### Completion Was Rejected
 
@@ -195,11 +199,15 @@ Checks:
 
 ```bash
 python3 scripts/research_mode.py summary --id <research-id> --format json
+python3 scripts/research_mode.py health --id <research-id> --format json
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 ```
 
 Safe actions:
 
+- if `operator_attention` or `health.findings` reports
+  `completion_validation_retry_loop`, inspect the repeated rejection reasons
+  before letting another recurring worker retry the same finalization;
 - inspect `summary --format json` or `task-playbook.md` for
   `adequacy.operator_next_action`, `coverage_gaps`, and `blocking_reasons`;
 - let the next worker turn handle `needs_research`, `needs_analysis`, or
@@ -232,6 +240,74 @@ Safe action:
 - request changes or reopen the task so a valid candidate can be produced;
 - restore the artifact only if there is a known safe source of truth.
 
+### `delivery_artifact_handoff_failed`
+
+Meaning:
+
+- finalization declares candidate artifacts, but the delivery manifest does not
+  point at the review-ready primary file; or
+- the declared primary deliverable kind and the actual candidate format disagree
+  (for example `pdf_report` with only Markdown).
+
+Checks:
+
+- `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.candidate_artifacts`;
+- `delivery.review_ready`;
+- `delivery.primary_file`;
+- `summary --format json` operator attention.
+
+Safe action:
+
+- do not approve or mark delivered yet;
+- produce or attach the declared user-facing artifact inside the task directory;
+- use `request-changes` for worker rework, or `mark-delivered --primary-file ...`
+  only after the correct primary file exists and has been reviewed.
+
+### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
+
+Meaning:
+
+- the structured desired format and the inspected candidate artifact format do
+  not match;
+- `output_contract_format_mismatch` means
+  `working_memory.output_contract.kind` requested one format, but the worker
+  produced another;
+- `declared_deliverable_format_mismatch` means
+  `finalization.primary_deliverable_kind` declared one canonical format, but the
+  candidate artifact is another.
+
+Checks:
+
+- `working_memory.output_contract.kind`;
+- `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.selected_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.last_validation_findings`.
+
+Safe action:
+
+- ask the worker to produce the structured desired user-facing artifact, or
+  update the explicit output contract/declaration if the requested format was
+  wrong;
+- do not mark delivery ready while `desired_kind` and `feasible_kind` disagree.
+
+### `default_deliverable_format_mismatch` (legacy)
+
+Meaning:
+
+- historical states may still contain this reason from older builds that inferred
+  a default desired format from natural-language context.
+
+Safe action:
+
+- treat it like a structured format mismatch: inspect
+  `finalization.deliverable_decision`, then either produce the desired artifact
+  or update the explicit output contract.
+
 ### `delivery_ready_but_missing_primary`
 
 Meaning:
@@ -251,6 +327,28 @@ python3 scripts/research_mode.py mark-delivered \
 
 Only run this after confirming that `final-report.md` exists inside the task
 directory and is the intended deliverable.
+
+### `delivery_channel_addressing_failed`
+
+Meaning:
+
+- the platform delivery adapter failed because the provider target shape was not
+  accepted. For example, the provider may require a channel/thread/topic/root
+  target shape different from the one used by the adapter.
+
+Checks:
+
+- failed `delivery_intents[]` entry;
+- `error_code`;
+- sanitized `provider_target_shape`;
+- actual adapter call outside Research Mode.
+
+Safe action:
+
+- fix the platform adapter target shape;
+- retry delivery through the adapter;
+- record the retry with `record-notification --status sent` after success, or
+  another `--status failed --error-code ...` if it still fails.
 
 ### Command Fails Because Task Id Is Ambiguous
 
@@ -565,12 +663,16 @@ python3 scripts/research_mode.py status --id <research-id> --format json
 - `python3 scripts/research_mode.py queue-status --root <root>`;
 - `status --format json` и `summary --format text` для задачи;
 - `queue.status`, `queue.position` и `queue.blocked_by_task_id`.
+- queue findings в `queue-status --format json`, особенно
+  `queue_holder_task_missing`, `queue_holder_task_lock_mismatch`,
+  `queue_stale_waiter` и `queue_terminal_task_waiter`.
 
 Безопасные действия:
 
 - подождать завершения активной задачи, если holder свежий;
 - считать `deferred:global-research-lock` штатным ожиданием, а не ошибкой cron tick;
-- перед ручным исправлением проверить stale queue state.
+- перед ручным исправлением проверить queue findings; task-specific queue
+  mismatches также видны в `health`.
 
 ### Завершение отклонено
 
@@ -590,11 +692,15 @@ python3 scripts/research_mode.py status --id <research-id> --format json
 
 ```bash
 python3 scripts/research_mode.py summary --id <research-id> --format json
+python3 scripts/research_mode.py health --id <research-id> --format json
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 ```
 
 Безопасные действия:
 
+- если `operator_attention` или `health.findings` показывает
+  `completion_validation_retry_loop`, проверить повторяющиеся причины отказа
+  перед тем, как давать recurring worker снова повторить ту же финализацию;
 - проверить в `summary --format json` или `task-playbook.md` поля
   `adequacy.operator_next_action`, `coverage_gaps` и `blocking_reasons`;
 - дать следующей рабочей итерации обработать `needs_research`,
@@ -628,6 +734,76 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
   кандидат;
 - восстанавливать артефакт только при наличии понятного источника истины.
 
+### `delivery_artifact_handoff_failed`
+
+Значение:
+
+- finalization заявляет кандидатные артефакты, но delivery manifest не указывает
+  на review-ready primary file; или
+- заявленный тип основного результата не совпадает с фактическим форматом
+  кандидата, например `pdf_report` указывает только на Markdown.
+
+Проверки:
+
+- `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.candidate_artifacts`;
+- `delivery.review_ready`;
+- `delivery.primary_file`;
+- operator attention в `summary --format json`.
+
+Безопасное действие:
+
+- пока не утверждать и не помечать как доставленное;
+- создать или приложить заявленный пользовательский артефакт внутри директории
+  задачи;
+- использовать `request-changes` для доработки worker-ом или
+  `mark-delivered --primary-file ...` только после проверки корректного primary
+  file.
+
+### `output_contract_format_mismatch` / `declared_deliverable_format_mismatch`
+
+Значение:
+
+- структурный желаемый формат и фактически проверенный формат candidate artifact
+  не совпадают;
+- `output_contract_format_mismatch` означает, что
+  `working_memory.output_contract.kind` запросил один формат, а worker создал
+  другой;
+- `declared_deliverable_format_mismatch` означает, что
+  `finalization.primary_deliverable_kind` заявил один канонический формат, а
+  candidate artifact имеет другой.
+
+Проверки:
+
+- `working_memory.output_contract.kind`;
+- `finalization.primary_deliverable_kind`;
+- `finalization.deliverable_decision.selected_kind`;
+- `finalization.deliverable_decision.desired_kind`;
+- `finalization.deliverable_decision.feasible_kind`;
+- `finalization.last_validation_findings`.
+
+Безопасное действие:
+
+- попросить worker-а подготовить структурно запрошенный пользовательский артефакт
+  или исправить explicit output contract/declaration, если запрос был ошибочным;
+- не помечать доставку готовой, пока `desired_kind` и `feasible_kind`
+  расходятся.
+
+### `default_deliverable_format_mismatch` (legacy)
+
+Значение:
+
+- старые states могут всё ещё содержать этот reason от версий, где default
+  desired format выводился из natural-language context.
+
+Безопасное действие:
+
+- обрабатывать как структурное несовпадение формата: проверить
+  `finalization.deliverable_decision`, затем либо создать желаемый артефакт, либо
+  исправить explicit output contract.
+
 ### `delivery_ready_but_missing_primary`
 
 Значение:
@@ -647,6 +823,28 @@ python3 scripts/research_mode.py mark-delivered \
 
 Команда допустима только после проверки, что `final-report.md` существует
 внутри задачи и действительно является нужным результатом.
+
+### `delivery_channel_addressing_failed`
+
+Значение:
+
+- adapter доставки не смог отправить сообщение или файл, потому что provider не
+  принял форму цели. Например, каналу может требоваться другая связка
+  channel/thread/topic/root target.
+
+Проверки:
+
+- failed-запись в `delivery_intents[]`;
+- `error_code`;
+- безопасная `provider_target_shape`;
+- фактический вызов adapter-а вне Research Mode.
+
+Безопасное действие:
+
+- исправить форму цели в adapter-е канала;
+- повторить доставку через adapter;
+- после успеха записать `record-notification --status sent`, а при новом сбое -
+  ещё один `--status failed --error-code ...`.
 
 ### Команда не может выбрать задачу
 

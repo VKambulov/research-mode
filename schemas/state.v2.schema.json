@@ -28,7 +28,35 @@
         "final_report_path": {"type": ["string", "null"]}
       }
     },
-    "working_memory": {"type": "object", "additionalProperties": true},
+    "working_memory": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "output_contract": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": ["string", "null"],
+              "enum": [
+                null,
+                "markdown_report",
+                "pdf_report",
+                "docx_report",
+                "html_report",
+                "xlsx",
+                "csv",
+                "package",
+                "unknown"
+              ]
+            },
+            "quality_checks": {"type": "array"},
+            "search_profile": {"type": ["object", "null"]}
+          }
+        },
+        "search_profile": {"type": ["object", "null"]}
+      }
+    },
     "review": {"type": "object", "additionalProperties": true},
     "delivery": {"type": "object", "additionalProperties": true},
     "delivery_intents": {
@@ -55,6 +83,18 @@
     },
     "adequacy": {"type": "object", "additionalProperties": true},
     "finalization": {"type": "object", "additionalProperties": true},
+    "reliability": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {"type": "integer"},
+        "failure_counters": {"type": "object", "additionalProperties": true},
+        "last_events": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
     "queue": {"type": "object", "additionalProperties": true}
   }
 }

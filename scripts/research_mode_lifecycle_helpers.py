@@ -8,8 +8,8 @@ from typing import Any
 from research_mode_corpus import list_corpus_entries
 from research_mode_adequacy import build_adequacy_contract, build_adequacy_guidance
 from research_mode_finalization import (
-    RAW_FINAL_ARTIFACT_SIGNALS,
     build_finalization_contract,
+    check_deliverable_format_decision,
     inspect_candidate_artifacts,
 )
 from research_mode_payloads import result_template
@@ -26,100 +26,49 @@ from research_mode_utils import (
 RULES_PROFILE_MAX_CHARS = 20000
 SKILL_DIR = Path(__file__).resolve().parent.parent
 RULES_PROFILE_PATH = SKILL_DIR / "RULES.md"
+USER_FACING_ARTIFACT_VISIBILITIES = {"user_facing", "external", "reviewable"}
+INTERNAL_CANDIDATE_PATH_PREFIXES = (
+    "iterations/",
+    ".tmp/",
+    "workspace/tmp/",
+    "workspace/analysis/",
+    "workspace/data/",
+    "workspace/tools/",
+    "workspace/vision/",
+    "workspace/screenshots/",
+)
+SEARCH_SCOPES = {"local", "regional", "national", "global", "unknown"}
+DISCOVERY_MODES = {"serp_first", "synthesis_first", "corpus_first", "unknown"}
 
 
-def _routing_text_blob(state: dict[str, Any]) -> str:
+def _structured_search_profile(state: dict[str, Any]) -> dict[str, Any]:
     working_memory = state.get("working_memory") or {}
-    parts: list[str] = []
-    for value in (
-        state.get("title"),
-        state.get("goal"),
-        state.get("phase"),
-        working_memory.get("summary"),
-        working_memory.get("next_angle"),
-        working_memory.get("deliverable"),
-    ):
+    raw_profile = working_memory.get("search_profile")
+    if not isinstance(raw_profile, dict):
+        output_contract = working_memory.get("output_contract") or {}
+        if isinstance(output_contract, dict):
+            raw_profile = output_contract.get("search_profile")
+    if not isinstance(raw_profile, dict):
+        return {}
+
+    scope = str(raw_profile.get("scope") or "unknown").strip().lower()
+    discovery_mode = str(
+        raw_profile.get("discovery_mode") or "unknown"
+    ).strip().lower()
+    if scope not in SEARCH_SCOPES:
+        scope = "unknown"
+    if discovery_mode not in DISCOVERY_MODES:
+        discovery_mode = "unknown"
+
+    profile: dict[str, Any] = {
+        "scope": scope,
+        "discovery_mode": discovery_mode,
+    }
+    for key in ("locale", "region_hint"):
+        value = str(raw_profile.get(key) or "").strip()
         if value:
-            parts.append(str(value))
-    for key in ("open_questions", "constraints", "user_instructions"):
-        for item in working_memory.get(key) or []:
-            if item:
-                parts.append(str(item))
-    return "\n".join(parts).lower()
-
-
-def _looks_like_ru_local_research(state: dict[str, Any]) -> bool:
-    text = _routing_text_blob(state)
-    if not text:
-        return False
-
-    geo_markers = (
-        "росси",
-        "рф",
-        "рунет",
-        "каменск",
-        "каменск-шахтин",
-        "ростов",
-        "краснодар",
-        "ставрополь",
-        "волгоград",
-        "воронеж",
-        "калмыки",
-        "адыге",
-        "крым",
-        "москва",
-        "санкт-петербург",
-        "питер",
-        "спб",
-        "регион",
-        "город",
-        "область",
-        "край",
-        "republic of crimea",
-        "rostov",
-        "krasnodar",
-        "stavropol",
-        "volgograd",
-        "voronezh",
-        "adygea",
-        "kalmykia",
-        "crimea",
-    )
-    local_discovery_terms = (
-        "контакт",
-        "телефон",
-        "адрес",
-        "сайт",
-        "домен",
-        "карты",
-        "организац",
-        "компан",
-        "бизнес",
-        "магазин",
-        "сервис",
-        "услуг",
-        "список ресурсов",
-        "ресурс",
-        "список сайтов",
-        "local business",
-        "contact",
-        "phone",
-        "address",
-        "company",
-        "business",
-        "website",
-        "domain",
-        "directory",
-        "map",
-        "maps",
-        "serp",
-    )
-
-    has_geo = any(marker in text for marker in geo_markers)
-    has_local_discovery = any(marker in text for marker in local_discovery_terms)
-    has_cyrillic = bool(re.search(r"[а-яё]", text, flags=re.IGNORECASE))
-
-    return has_geo or (has_local_discovery and has_cyrillic)
+            profile[key] = value
+    return profile
 
 
 def _build_search_routing_guidance(state: dict[str, Any]) -> list[str]:
@@ -128,15 +77,71 @@ def _build_search_routing_guidance(state: dict[str, Any]) -> list[str]:
         "For discovery-heavy research, prefer tools that expose raw source lists / SERPs before relying on synthesis-first search.",
         "Use synthesis-first search after you already have candidate resources, or when the topic is clearly global/international rather than local/regional.",
     ]
-    if _looks_like_ru_local_research(state):
+    search_profile = _structured_search_profile(state)
+    scope = search_profile.get("scope")
+    discovery_mode = search_profile.get("discovery_mode")
+    if scope in {"local", "regional", "national"}:
+        scope_text = str(scope).replace("_", " ")
+        region_hint = search_profile.get("region_hint")
+        locale = search_profile.get("locale")
         guidance.extend(
             [
-                "This looks like RU/local/regional research: prefer regional or local search tools as the first-pass discovery path, then inspect direct sources with the most appropriate follow-up tools for the case.",
-                "For local business / address / contact / company discovery, use source-list or SERP-style discovery first to gather candidate resources before leaning on synthesis-first summaries.",
-                "When a city or region is known, include it directly in the query text and use region-aware search options when available so the search is geographically anchored.",
+                f"Structured search_profile.scope={scope_text}: prefer matching geographic discovery tools before broad synthesis.",
             ]
         )
+        if region_hint or locale:
+            guidance.append(
+                "Structured search profile hints: "
+                + ", ".join(
+                    item
+                    for item in (
+                        f"region_hint={region_hint}" if region_hint else "",
+                        f"locale={locale}" if locale else "",
+                    )
+                    if item
+                )
+                + "."
+            )
+    if discovery_mode and discovery_mode != "unknown":
+        guidance.append(
+            f"Structured search_profile.discovery_mode={discovery_mode}: use that discovery mode as the first-pass search strategy."
+        )
     return guidance
+
+
+def _is_internal_candidate_path(path: str) -> bool:
+    cleaned = str(path or "").strip()
+    if not cleaned:
+        return False
+    return any(
+        cleaned == prefix.rstrip("/") or cleaned.startswith(prefix)
+        for prefix in INTERNAL_CANDIDATE_PATH_PREFIXES
+    )
+
+
+def _candidate_artifact_exposure_reasons(
+    artifact: dict[str, Any],
+    *,
+    primary_kind: str,
+) -> list[str]:
+    path = str(artifact.get("path") or "").strip()
+    kind = str(artifact.get("kind") or "").strip().lower()
+    visibility = str(artifact.get("visibility") or "user_facing").strip().lower()
+    package_candidate = (
+        primary_kind == "package"
+        and kind in {"package", "final_package"}
+        and path.startswith("workspace/outputs/")
+    )
+
+    reasons: list[str] = []
+    if visibility == "internal":
+        reasons.append("raw_artifact_exposed_as_final")
+    elif visibility and visibility not in USER_FACING_ARTIFACT_VISIBILITIES:
+        reasons.append("candidate_artifact_visibility_unsupported")
+
+    if not package_candidate and _is_internal_candidate_path(path):
+        reasons.append("raw_artifact_exposed_as_final")
+    return reasons
 
 
 def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
@@ -145,7 +150,8 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
     guidance = [
         "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, choose the recipient and primary deliverable kind, draft the deliverable, inspect it as the recipient, fix blocking defects, and record the trace in result.finalization.",
         "Synthesis notes, raw JSON/CSV/XLSX, SQLite dumps, iteration logs, and workspace files are internal artifacts until they are turned into a user-facing deliverable.",
-        "Do not expose raw working fields such as confidence, evidence_urls, active/unknown statuses, or internal file paths as the final result unless they are translated into reader-facing meaning.",
+        "List internal work in result.finalization.internal_artifacts; list only reviewable outputs in result.finalization.candidate_artifacts.",
+        "For each candidate artifact, set visibility='user_facing' or visibility='internal' and set role='primary' for the main reviewable output.",
         "Set result.finalization.status='passed' only when blocking_defects is empty and validation_evidence records what was actually checked.",
         "Keep delivery.review_ready separate from delivery.ready: worker finalization can reach review, but approval or mark-delivered makes it delivery-ready.",
         "For multi-file or directory deliverables, expose one package candidate: set primary_deliverable_kind='package' and use a single candidate_artifacts entry for workspace/outputs/<package-name> with kind='final_package' or kind='package'. Do not list each package file as separate final candidate artifacts.",
@@ -428,7 +434,7 @@ def render_default_final_report(
             note = source.get("note")
             quality = compute_source_quality_score(source)
             qbadge = (
-                {"authoritative": "●●", "standard": "●○", "weak": "○○", "poor": "··"}
+                {"strong": "●●", "standard": "●○", "weak": "○○", "poor": "··"}
             ).get(quality["tier"], "??")
             bullet = f"- [{qbadge}] " + (f"[{title}]({url})" if url else title)
             if quality["factors"]:
@@ -460,6 +466,62 @@ def compute_low_yield(metrics: dict[str, int], payload: dict[str, Any]) -> bool:
     )
 
 
+def _markdown_table_cells(line: str) -> list[str]:
+    return [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = _markdown_table_cells(line)
+    return bool(cells) and all(re.match(r"^:?-{3,}:?$", cell or "") for cell in cells)
+
+
+def _markdown_table_shapes(report_text: str) -> list[dict[str, Any]]:
+    lines = [line.rstrip() for line in str(report_text or "").splitlines()]
+    tables: list[dict[str, Any]] = []
+    for index, line in enumerate(lines[:-1]):
+        if "|" not in line or not _is_markdown_table_separator(lines[index + 1]):
+            continue
+
+        headers = _markdown_table_cells(line)
+        column_count = len(headers)
+        data_rows = 0
+        for data_line in lines[index + 2 :]:
+            if "|" not in data_line or _is_markdown_table_separator(data_line):
+                break
+            cells = _markdown_table_cells(data_line)
+            if any(cell for cell in cells):
+                data_rows += 1
+
+        tables.append(
+            {
+                "columns": column_count,
+                "data_rows": data_rows,
+                "start_line": index + 1,
+            }
+        )
+    return tables
+
+
+def detect_comparative_structure(
+    report_text: str,
+    *,
+    min_rows: int = 2,
+    min_columns: int = 2,
+) -> dict[str, Any]:
+    tables = _markdown_table_shapes(report_text)
+    matched_tables = [
+        table
+        for table in tables
+        if table["data_rows"] >= min_rows and table["columns"] >= min_columns
+    ]
+    return {
+        "passed": bool(matched_tables),
+        "signals": ["table_shape"] if matched_tables else [],
+        "table_count": len(tables),
+        "matched_tables": matched_tables,
+    }
+
+
 def inspect_deliverable_requirements(
     deliverable: str,
     report_markdown: str,
@@ -467,9 +529,8 @@ def inspect_deliverable_requirements(
     payload: dict[str, Any],
     total_sources: int,
     total_findings: int,
+    output_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    text = str(deliverable or "").strip()
-    lowered = text.lower()
     report = str(report_markdown or "")
     lines = [line.rstrip() for line in report.splitlines()]
     bullet_count = sum(
@@ -485,70 +546,76 @@ def inspect_deliverable_requirements(
         for line in pre_metadata_lines
         if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line)
     )
-    heading_count = sum(1 for line in lines if re.match(r"^#{1,6}\s+", line))
-    comparison_signal_count = sum(
+    non_heading_lines = sum(
         1
-        for needle in (
-            " vs ",
-            " compared ",
-            " comparison",
-            " compare",
-            " contrast",
-            " отличие",
-            " отличия",
-            " разница",
-            " сравнение",
-            " сравнить",
-            " преимущества",
-            " недостатки",
-        )
-        if needle in report.lower()
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
     )
 
     checks: list[dict[str, Any]] = []
     reasons: list[str] = []
+    quality_checks = []
+    if isinstance(output_contract, dict):
+        quality_checks = output_contract.get("quality_checks") or []
+    if not isinstance(quality_checks, list):
+        quality_checks = []
 
-    if any(token in lowered for token in ("bullet", "спис", "list")):
-        passed = pre_metadata_bullet_count >= 2
-        checks.append(
-            {
-                "kind": "bullet_list",
-                "passed": passed,
-                "bullet_count": bullet_count,
-                "pre_metadata_bullet_count": pre_metadata_bullet_count,
-                "minimum_bullets": 2,
-            }
-        )
-        if not passed:
-            reasons.append("deliverable_bullet_list_unstructured")
-
-    if any(token in lowered for token in ("overview", "обзор", "summary", "сводк")):
-        passed = heading_count >= 1 or bullet_count >= 2
-        checks.append(
-            {
-                "kind": "overview",
-                "passed": passed,
-                "heading_count": heading_count,
-                "bullet_count": bullet_count,
-            }
-        )
-        if not passed:
-            reasons.append("deliverable_overview_outline_empty")
-
-    if any(token in lowered for token in ("compar", "сравн", "сопостав")):
-        evidence_units = max(int(total_sources or 0), int(total_findings or 0))
-        passed = evidence_units >= 2 and comparison_signal_count >= 1
-        checks.append(
-            {
-                "kind": "comparative",
-                "passed": passed,
-                "comparison_signal_count": comparison_signal_count,
-                "evidence_units": evidence_units,
-                "minimum_evidence_units": 2,
-            }
-        )
-        if not passed:
-            reasons.append("deliverable_comparative_shape_weak")
+    for raw_check in quality_checks:
+        if not isinstance(raw_check, dict):
+            continue
+        check_kind = str(raw_check.get("kind") or "").strip().lower()
+        if check_kind == "minimum_length":
+            min_chars = int(raw_check.get("min_chars") or 0)
+            min_non_heading_lines = int(raw_check.get("min_non_heading_lines") or 0)
+            passed = len(report) >= min_chars and non_heading_lines >= min_non_heading_lines
+            checks.append(
+                {
+                    "kind": "minimum_length",
+                    "passed": passed,
+                    "char_count": len(report),
+                    "minimum_chars": min_chars,
+                    "non_heading_lines": non_heading_lines,
+                    "minimum_non_heading_lines": min_non_heading_lines,
+                }
+            )
+            if not passed:
+                reasons.append("deliverable_minimum_length_unmet")
+        elif check_kind == "bullet_list":
+            min_items = int(raw_check.get("min_items") or 2)
+            passed = pre_metadata_bullet_count >= min_items
+            checks.append(
+                {
+                    "kind": "bullet_list",
+                    "passed": passed,
+                    "bullet_count": bullet_count,
+                    "pre_metadata_bullet_count": pre_metadata_bullet_count,
+                    "minimum_bullets": min_items,
+                }
+            )
+            if not passed:
+                reasons.append("deliverable_bullet_list_unstructured")
+        elif check_kind == "comparative_matrix":
+            min_rows = int(raw_check.get("min_rows") or 2)
+            min_columns = int(raw_check.get("min_columns") or 2)
+            comparative_structure = detect_comparative_structure(
+                report,
+                min_rows=min_rows,
+                min_columns=min_columns,
+            )
+            passed = bool(comparative_structure.get("passed"))
+            checks.append(
+                {
+                    "kind": "comparative_matrix",
+                    "passed": passed,
+                    "structure_signals": comparative_structure.get("signals") or [],
+                    "structure_table_count": comparative_structure.get("table_count") or 0,
+                    "matched_structures": comparative_structure.get("matched_tables") or [],
+                    "minimum_rows": min_rows,
+                    "minimum_columns": min_columns,
+                }
+            )
+            if not passed:
+                reasons.append("deliverable_comparative_shape_weak")
 
     return {
         "checks": checks,
@@ -556,8 +623,7 @@ def inspect_deliverable_requirements(
         "report_metrics": {
             "bullet_count": bullet_count,
             "pre_metadata_bullet_count": pre_metadata_bullet_count,
-            "heading_count": heading_count,
-            "comparison_signal_count": comparison_signal_count,
+            "non_heading_lines": non_heading_lines,
         },
     }
 
@@ -654,6 +720,7 @@ def validate_completion(
         payload=payload,
         total_sources=total_sources,
         total_findings=total_findings,
+        output_contract=working_memory.get("output_contract"),
     )
     reasons.extend(
         item
@@ -790,7 +857,6 @@ def validate_candidate_final(
     if report_markdown is None:
         report_markdown = str(payload.get("final_report_markdown") or "")
     working_memory = state.get("working_memory") or {}
-    deliverable_desc = str(working_memory.get("deliverable") or "").lower()
 
     finalization_check = _check_finalization_trace(
         payload.get("finalization"), report_markdown
@@ -807,6 +873,16 @@ def validate_candidate_final(
     )
     findings.append(artifact_check)
     if not artifact_check["passed"]:
+        all_passed = False
+
+    format_decision_check = check_deliverable_format_decision(
+        state=state,
+        finalization=payload.get("finalization"),
+        report_markdown=report_markdown,
+        artifact_check=artifact_check,
+    )
+    findings.append(format_decision_check)
+    if not format_decision_check["passed"]:
         all_passed = False
 
     primary_kind = str(
@@ -830,23 +906,15 @@ def validate_candidate_final(
             }
         )
     else:
-        deliverable_check = _check_deliverable_quality(report_markdown, deliverable_desc)
+        deliverable_check = _check_deliverable_quality(report_markdown)
         findings.append(deliverable_check)
         if not deliverable_check["passed"]:
             all_passed = False
-
-    draft_check = _check_no_draft_artifacts(task, report_markdown)
-    findings.append(draft_check)
-    if not draft_check["passed"]:
-        all_passed = False
 
     human_readiness_check = _check_human_readiness(report_markdown)
     findings.append(human_readiness_check)
     if not human_readiness_check["passed"]:
         all_passed = False
-
-    naming_check = _check_naming_hygiene(report_markdown)
-    findings.append(naming_check)
 
     manifest_check = _check_delivery_manifest(state)
     findings.append(manifest_check)
@@ -871,6 +939,18 @@ def validate_candidate_final(
         "findings": findings,
         "reasons": reasons,
         "status": "passed" if all_passed else "rejected",
+        "deliverable_decision": {
+            key: format_decision_check.get(key)
+            for key in (
+                "selected_kind",
+                "desired_kind",
+                "feasible_kind",
+                "reason",
+                "source",
+                "alternatives_considered",
+            )
+            if key in format_decision_check
+        },
     }
 
 
@@ -900,27 +980,15 @@ def _check_finalization_trace(
     if status == "passed" and not candidate_artifacts and not report_text:
         reasons.append("primary_deliverable_missing")
 
-    raw_blob_parts: list[str] = [primary_kind]
-    for artifact in candidate_artifacts:
-        artifact_path = str(artifact.get("path") or "")
-        artifact_kind = str(artifact.get("kind") or "").strip().lower()
-        package_candidate = (
-            primary_kind == "package"
-            and artifact_kind in {"package", "final_package"}
-            and artifact_path.startswith("workspace/outputs/")
-        )
-        if not package_candidate:
-            raw_blob_parts.extend(
-                [
-                    artifact_path,
-                    artifact_kind,
-                    str(artifact.get("note") or ""),
-                ]
-            )
-    raw_blob = "\n".join(raw_blob_parts).lower()
-    raw_signals = RAW_FINAL_ARTIFACT_SIGNALS
-    if status == "passed" and any(signal in raw_blob for signal in raw_signals):
-        reasons.append("raw_artifact_exposed_as_final")
+    if status == "passed":
+        for artifact in candidate_artifacts:
+            if isinstance(artifact, dict):
+                for reason in _candidate_artifact_exposure_reasons(
+                    artifact,
+                    primary_kind=primary_kind,
+                ):
+                    if reason not in reasons:
+                        reasons.append(reason)
 
     if status == "passed":
         if not str(trace.get("inferred_user_need") or "").strip():
@@ -968,10 +1036,7 @@ def _check_delivery_manifest(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _check_deliverable_quality(
-    report_markdown: str,
-    deliverable_desc: str,
-) -> dict[str, Any]:
+def _check_deliverable_quality(report_markdown: str) -> dict[str, Any]:
     report_lines = [
         line.strip() for line in report_markdown.splitlines() if line.strip()
     ]
@@ -995,60 +1060,10 @@ def _check_deliverable_quality(
             passed = False
             reasons.append("final_report_truncated")
 
-    if deliverable_desc and any(
-        t in deliverable_desc for t in ("bullet", "список", "list")
-    ):
-        bullet_count = sum(
-            1
-            for line in report_lines
-            if line.startswith("- ") or line.startswith("* ")
-        )
-        if bullet_count < 2:
-            passed = False
-            reasons.append("deliverable_bullet_list_missing")
-
     return {
         "check": "deliverable_quality",
         "passed": passed,
         "reasons": reasons,
-    }
-
-
-def _check_no_draft_artifacts(
-    task: ResearchTask,
-    report_markdown: str,
-) -> dict[str, Any]:
-    passed = True
-    reasons: list[str] = []
-    report_lower = report_markdown.lower()
-
-    draft_signals = [
-        ("use this draft", "contains_scaffolding_draft_instruction"),
-        ("notes for finalization", "contains_finalization_notes"),
-        ("not final", "contains_not_final_disclaimer"),
-        ("use as draft", "contains_draft_usage_hint"),
-        ("placeholder", "contains_placeholder"),
-        ("todo:", "contains_todo_marker"),
-        ("файл лежит", "user_must_find_file"),
-        ("найди файл", "user_must_find_file"),
-    ]
-
-    for signal, reason in draft_signals:
-        if signal in report_lower:
-            passed = False
-            reasons.append(reason)
-
-    if not passed:
-        return {
-            "check": "draft_artifacts",
-            "passed": False,
-            "reasons": reasons,
-        }
-
-    return {
-        "check": "draft_artifacts",
-        "passed": True,
-        "reasons": [],
     }
 
 
@@ -1070,23 +1085,6 @@ def _check_human_readiness(report_markdown: str) -> dict[str, Any]:
         "passed": passed,
         "reasons": reasons,
     }
-
-
-def _check_naming_hygiene(report_markdown: str) -> dict[str, Any]:
-    passed = True
-    reasons: list[str] = []
-    report_lower = report_markdown.lower()
-
-    if "-draft." in report_lower or "_draft." in report_lower:
-        passed = False
-        reasons.append("report_named_as_draft")
-
-    return {
-        "check": "naming_hygiene",
-        "passed": passed,
-        "reasons": reasons,
-    }
-
 
 CONFIDENCE_TIERS = {"high", "medium", "low", "reserve"}
 
@@ -1164,49 +1162,9 @@ def compute_confidence_score(
 
 def compute_source_quality_score(source: dict[str, Any]) -> dict[str, Any]:
     url = str(source.get("url") or "")
-    title = str(source.get("title") or "").lower()
-    note = str(source.get("note") or "").lower()
-    tags = [str(t).lower() for t in (source.get("tags") or [])]
     fetched_at = source.get("fetched_at") or source.get("recorded_at")
-    all_tags = tags + [note]
     score = 0.5
     factors: list[str] = []
-
-    official_signals = [
-        "official",
-        "government",
-        "edu",
-        "gov",
-        "org.",
-        "autoridade",
-        "ministerio",
-        "government",
-        ".gov.",
-        ".edu",
-    ]
-    if any(s in url.lower() or s in title for s in official_signals):
-        score += 0.25
-        factors.append("official_domain")
-
-    user_gen_signals = [
-        "forum",
-        "reddit",
-        "quora",
-        ".stackex",
-        "blogspot",
-        "medium.com",
-    ]
-    if any(s in url.lower() for s in user_gen_signals):
-        score -= 0.1
-        factors.append("user_generated_platform")
-
-    if any(s in all_tags for s in ("primary", "verified", "authoritative")):
-        score += 0.15
-        factors.append("authoritative_tag")
-
-    if any(s in all_tags for s in ("stale", "outdated", "unverified")):
-        score -= 0.2
-        factors.append("stale_tag")
 
     if fetched_at:
         try:
@@ -1229,7 +1187,7 @@ def compute_source_quality_score(source: dict[str, Any]) -> dict[str, Any]:
 
     tier: str
     if quality_score >= 0.75:
-        tier = "authoritative"
+        tier = "strong"
     elif quality_score >= 0.55:
         tier = "standard"
     elif quality_score >= 0.35:

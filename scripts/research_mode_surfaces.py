@@ -6,7 +6,20 @@ from typing import Any
 
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_corpus import list_corpus_entries
-from research_mode_finalization import build_finalization_surface
+from research_mode_finalization import (
+    build_finalization_surface,
+    expected_formats_for_primary_kind,
+)
+from research_mode_reliability import (
+    build_reliability_attention,
+    merge_operator_attention,
+)
+from research_mode_surface_delivery import (
+    DELIVERY_CHANNEL_ADDRESSING_ERROR,
+    DELIVERY_NOTIFICATION_ERROR,
+    classify_delivery_error,
+    notification_target_shape,
+)
 from research_mode_task import ResearchTask
 from research_mode_utils import (
     ValidationError,
@@ -16,6 +29,7 @@ from research_mode_utils import (
     read_json,
     read_jsonl,
     read_tsv_rows,
+    resolve_under_task,
     scheduled_worker_timeout_seconds,
 )
 
@@ -44,6 +58,30 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not consider deliverable delivered until primary_file is confirmed",
     },
+    "delivery_artifact_handoff_failed": {
+        "checklist": [
+            "Check finalization.primary_deliverable_kind",
+            "Check finalization.candidate_artifacts",
+            "Set delivery.primary_file to the review-ready task-local artifact",
+        ],
+        "note": "Do not approve or deliver until the candidate artifact and delivery primary file agree",
+    },
+    "delivery_channel_addressing_failed": {
+        "checklist": [
+            "Check the delivery adapter target shape",
+            "Verify whether the provider expects a channel, thread, topic, or file root target",
+            "Retry only after the adapter target shape is corrected",
+        ],
+        "note": "The delivery adapter failed because the provider target shape was not accepted",
+    },
+    "delivery_notification_failed": {
+        "checklist": [
+            "Check the failed delivery intent error",
+            "Verify the provider adapter and target availability",
+            "Retry only after the error is understood",
+        ],
+        "note": "The delivery adapter reported a failed notification send",
+    },
     "active_lock_in_terminal_state": {
         "checklist": [
             "Check lock.run_id and its age",
@@ -52,6 +90,82 @@ WARNING_GUIDANCE = {
         ],
         "note": "Do not issue new blind manual override; first verify stale/recovery path",
     },
+}
+
+
+def _path_format(path_value: str | None) -> str | None:
+    suffix = Path(str(path_value or "")).suffix.lower().lstrip(".")
+    if suffix in {"md", "markdown"}:
+        return "markdown"
+    return suffix or None
+
+
+def _resolve_state_task_path(state: dict[str, Any], path_value: Any) -> Path | None:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if path.is_absolute():
+        return path
+    task_dir = (state.get("artifacts") or {}).get("task_dir")
+    if not task_dir:
+        return path
+    try:
+        return resolve_under_task(Path(task_dir), path_text, label="state path")
+    except ValidationError:
+        return None
+
+
+def _matching_validated_artifact(
+    state: dict[str, Any],
+    primary_file: Any,
+) -> dict[str, Any] | None:
+    primary_path = _resolve_state_task_path(state, primary_file)
+    if primary_path is None:
+        return None
+    primary_resolved = primary_path.resolve()
+    for finding in (state.get("finalization") or {}).get("last_validation_findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            if artifact.get("reasons"):
+                continue
+            if artifact.get("format") == "package":
+                artifact_path = artifact.get("entrypoint_path")
+            elif artifact.get("source") == "final_report_markdown":
+                artifact_path = (state.get("artifacts") or {}).get("final_report_path")
+            else:
+                artifact_path = artifact.get("path")
+            candidate_path = _resolve_state_task_path(state, artifact_path)
+            if candidate_path is None:
+                continue
+            if candidate_path.resolve() == primary_resolved:
+                return artifact
+    return None
+
+
+def _has_candidate_artifact_inspection(state: dict[str, Any]) -> bool:
+    return any(
+        finding.get("check") == "candidate_artifact_inspection"
+        for finding in (state.get("finalization") or {}).get("last_validation_findings") or []
+    )
+
+
+def _state_file_exists(state: dict[str, Any], path_value: str | None) -> bool:
+    if not path_value:
+        return False
+    path = _resolve_state_task_path(state, path_value)
+    return bool(path) and path.exists()
+
+
+DELIVERY_HANDOFF_WARNING_CODES = {
+    "missing_reviewable_artifact",
+    "delivery_ready_but_missing_primary",
+    "delivery_artifact_handoff_failed",
+}
+DELIVERY_INTENT_WARNING_CODES = {
+    DELIVERY_CHANNEL_ADDRESSING_ERROR,
+    DELIVERY_NOTIFICATION_ERROR,
 }
 
 
@@ -91,11 +205,53 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     if status == "awaiting_review":
-        final_report_exists = (
-            bool(final_report_path) and Path(final_report_path).exists()
-        )
+        final_report_exists = _state_file_exists(state, final_report_path)
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_exists = _state_file_exists(state, primary_file)
+        finalization = state.get("finalization") or {}
+        candidate_artifacts = finalization.get("candidate_artifacts") or []
+        if delivery.get("review_ready") and candidate_artifacts and not primary_file:
+            warnings.append(
+                {
+                    "code": "delivery_artifact_handoff_failed",
+                    "message": "task is review-ready with candidate artifacts but no delivery.primary_file",
+                    "details": {
+                        "primary_deliverable_kind": finalization.get(
+                            "primary_deliverable_kind"
+                        ),
+                        "candidate_artifacts_count": len(candidate_artifacts),
+                        "primary_file": primary_file,
+                    },
+                }
+            )
+        primary_kind = str(finalization.get("primary_deliverable_kind") or "")
+        expected_formats = expected_formats_for_primary_kind(primary_kind)
+        if (
+            delivery.get("review_ready")
+            and _has_candidate_artifact_inspection(state)
+            and primary_file
+            and expected_formats
+            and "package" not in expected_formats
+        ):
+            artifact = _matching_validated_artifact(state, primary_file)
+            actual_format = str((artifact or {}).get("format") or "").strip().lower()
+            primary_format = actual_format or _path_format(str(primary_file or ""))
+            if not artifact or actual_format not in expected_formats:
+                warnings.append(
+                    {
+                        "code": "delivery_artifact_handoff_failed",
+                        "message": "task is review-ready but delivery.primary_file does not match the validated primary deliverable format",
+                        "details": {
+                            "primary_deliverable_kind": finalization.get(
+                                "primary_deliverable_kind"
+                            ),
+                            "expected_formats": sorted(expected_formats),
+                            "actual_format": actual_format or None,
+                            "primary_file": primary_file,
+                            "primary_file_format": primary_format,
+                        },
+                    }
+                )
         if not final_report_exists and not primary_exists:
             warnings.append(
                 {
@@ -110,7 +266,7 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
 
     if delivery.get("ready"):
         primary_file = delivery.get("primary_file")
-        primary_exists = bool(primary_file) and Path(primary_file).exists()
+        primary_exists = _state_file_exists(state, primary_file)
         if not primary_exists:
             warnings.append(
                 {
@@ -121,6 +277,26 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
                     },
                 }
             )
+
+    for intent in state.get("delivery_intents") or []:
+        if not isinstance(intent, dict) or intent.get("status") != "failed":
+            continue
+        error_code = str(intent.get("error_code") or "").strip() or (
+            classify_delivery_error(intent.get("error")) or DELIVERY_NOTIFICATION_ERROR
+        )
+        if error_code not in DELIVERY_INTENT_WARNING_CODES:
+            error_code = DELIVERY_NOTIFICATION_ERROR
+        warnings.append(
+            {
+                "code": error_code,
+                "message": intent.get("error") or "delivery notification failed",
+                "details": {
+                    "delivery_intent_id": intent.get("id"),
+                    "provider_target_shape": intent.get("provider_target_shape")
+                    or notification_target_shape(intent.get("notification_target")),
+                },
+            }
+        )
 
     operator_guidance = []
     for warning in warnings:
@@ -138,6 +314,59 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         "warnings": warnings,
         "has_warnings": len(warnings) > 0,
         "operator_guidance": operator_guidance,
+    }
+
+
+def _build_consistency_attention(state: dict[str, Any]) -> dict[str, Any]:
+    consistency = compute_consistency_warnings(state)
+    conditions: list[dict[str, Any]] = []
+    recommended_actions: list[dict[str, Any]] = []
+
+    for warning in consistency.get("warnings") or []:
+        code = str(warning.get("code") or "")
+        if code not in DELIVERY_HANDOFF_WARNING_CODES | DELIVERY_INTENT_WARNING_CODES:
+            continue
+        conditions.append(
+            {
+                "code": code
+                if code in DELIVERY_INTENT_WARNING_CODES
+                else "delivery_artifact_handoff_failed",
+                "severity": "warning",
+                "message": warning.get("message")
+                or "Delivery artifact handoff needs operator review.",
+                "details": {
+                    "warning_code": code,
+                    **(warning.get("details") or {}),
+                },
+            }
+        )
+
+    seen_action_codes: set[str] = set()
+    for guidance in consistency.get("operator_guidance") or []:
+        code = str(guidance.get("warning_code") or "")
+        if (
+            code not in DELIVERY_HANDOFF_WARNING_CODES | DELIVERY_INTENT_WARNING_CODES
+            or code in seen_action_codes
+        ):
+            continue
+        seen_action_codes.add(code)
+        recommended_actions.append(
+            {
+                "kind": "manual_review",
+                "warning_code": code
+                if code in DELIVERY_INTENT_WARNING_CODES
+                else "delivery_artifact_handoff_failed",
+                "note": guidance.get("note")
+                or "Inspect delivery.primary_file, candidate artifacts, and review state.",
+                "checklist": guidance.get("checklist") or [],
+            }
+        )
+
+    return {
+        "status": "manual_review_needed" if conditions else "ok",
+        "has_conditions": bool(conditions),
+        "conditions": conditions,
+        "recommended_actions": recommended_actions,
     }
 
 
@@ -296,12 +525,17 @@ def build_operator_attention(
     else:
         status = "ok"
 
-    return {
+    base_attention = {
         "status": status,
         "has_conditions": bool(conditions),
         "conditions": conditions,
         "recommended_actions": recommended_actions,
     }
+    merged_attention = merge_operator_attention(
+        base_attention,
+        _build_consistency_attention(state),
+    )
+    return merge_operator_attention(merged_attention, build_reliability_attention(state))
 
 
 def format_source_bullet(source: dict[str, Any]) -> str:
@@ -1303,7 +1537,7 @@ def render_synthesis_markdown(synthesis: dict[str, Any]) -> str:
         for source in sources:
             quality = source.get("quality") or {}
             qbadge_map = {
-                "authoritative": "●●",
+                "strong": "●●",
                 "standard": "●○",
                 "weak": "○○",
                 "poor": "··",

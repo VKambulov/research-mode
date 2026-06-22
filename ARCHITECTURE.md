@@ -78,6 +78,10 @@ Main files:
 - `research_mode_payloads.py` — task and worker result payload contracts.
 - `research_mode_finalization.py` — finalization surface and operator next
   action calculation.
+- `research_mode_reliability.py` — bounded reliability counters, failure
+  fingerprints, and operator-attention merge helpers.
+- `research_mode_queue.py` / `research_mode_health.py` — root-global queue
+  state and read-only health diagnostics.
 - `research_mode_surfaces.py` / `research_mode_reporting.py` — human-readable
   and JSON operator views.
 - `research_mode_runtime.py` — OpenClaw cron integration and task-local runtime
@@ -216,6 +220,34 @@ The operator-facing finalization surface exposes `operator_next_action`:
 This makes the next action explicit instead of requiring the operator to infer
 intent from raw JSON.
 
+Finalization can also record an optional `deliverable_decision` with
+`selected_kind`, `desired_kind`, and `feasible_kind`. This keeps the structured
+user-facing format contract separate from what the worker has actually produced.
+The desired kind comes from `working_memory.output_contract.kind` or a canonical
+`finalization.primary_deliverable_kind`, not from natural-language deliverable
+text, channel context, or report prose. Inspected artifact format is used only
+as the feasible kind when no explicit desired kind exists.
+
+## Reliability Diagnostics
+
+```mermaid
+flowchart TD
+    Lifecycle[Lifecycle validation] --> Reliability[state.reliability]
+    Delivery[Delivery and queue checks] --> Health[health]
+    Finalization[Finalization findings] --> Health
+    Queue[queue-status findings] --> Health
+    Reliability --> Summary[summary operator_attention]
+    Reliability --> Health
+    Health --> Operator[Operator action]
+```
+
+Reliability diagnostics are deliberately read-only unless an existing lifecycle
+command applies an explicit recovery. They normalize observed failure classes
+such as repeated completion-validation rejections, delivery artifact handoff
+mismatches, delivery channel addressing failures, queue holder/waiter
+mismatches, and finalization rework reasons. The goal is to make the next safe
+operator action visible without silently pausing schedules or editing state.
+
 ## OpenClaw Cron Integration
 
 ```mermaid
@@ -340,6 +372,10 @@ flowchart TB
 - `research_mode_payloads.py` — контракты задачи и JSON-результата рабочей итерации.
 - `research_mode_finalization.py` — поверхность финальной проверки и расчёт следующего
   действия оператора.
+- `research_mode_reliability.py` — ограниченные counters, fingerprints сбоев и
+  helpers для объединения operator attention.
+- `research_mode_queue.py` / `research_mode_health.py` — состояние общей
+  очереди на уровне root и read-only диагностика health.
 - `research_mode_surfaces.py` / `research_mode_reporting.py` — представления для оператора в
   JSON и человекочитаемом виде.
 - `research_mode_runtime.py` — интеграция с OpenClaw cron и локальное окружение задачи.
@@ -478,6 +514,35 @@ flowchart TD
 - `continue_research`
 
 Оператор видит следующий шаг явно, а не реконструирует намерение по сырому JSON.
+
+Финальная проверка также может записывать optional `deliverable_decision` с
+`selected_kind`, `desired_kind` и `feasible_kind`. Так структурный контракт
+пользовательского формата отделён от того, что worker фактически подготовил.
+Желаемый формат берётся из `working_memory.output_contract.kind` или
+канонического `finalization.primary_deliverable_kind`, а не из свободного текста
+deliverable, channel context или prose отчёта. Проверенный формат артефакта
+используется только как фактически доступный формат, если явного желаемого
+формата нет.
+
+## Reliability diagnostics
+
+```mermaid
+flowchart TD
+    Lifecycle[Проверки жизненного цикла] --> Reliability[state.reliability]
+    Delivery[Проверки доставки и очереди] --> Health[health]
+    Finalization[Причины финальной проверки] --> Health
+    Queue[queue-status findings] --> Health
+    Reliability --> Summary[summary operator_attention]
+    Reliability --> Health
+    Health --> Operator[Действие оператора]
+```
+
+Reliability diagnostics остаётся read-only, если существующая команда жизненного
+цикла явно не выполняет восстановление. Слой нормализует наблюдаемые классы
+сбоев: повторные отказы completion validation, несостыковки delivery artifact
+handoff, ошибки формы delivery channel, queue holder/waiter mismatches и причины
+finalization rework. Цель — показать следующий безопасный шаг оператора без
+тихой паузы расписаний или скрытого редактирования state.
 
 ## Интеграция с OpenClaw cron
 

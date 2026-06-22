@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+DELIVERY_CHANNEL_ADDRESSING_ERROR = "delivery_channel_addressing_failed"
+DELIVERY_NOTIFICATION_ERROR = "delivery_notification_failed"
+
 
 CHANNEL_LIMITS = {
     "telegram": {
@@ -78,6 +81,23 @@ DELIVERY_PRESETS = {
         ],
     },
 }
+
+
+def classify_delivery_error(error: str | None) -> str | None:
+    text = str(error or "").strip().lower()
+    if not text:
+        return None
+    return DELIVERY_NOTIFICATION_ERROR
+
+
+def notification_target_shape(target: dict[str, Any] | None) -> dict[str, Any]:
+    target = target or {}
+    return {
+        "channel": target.get("channel"),
+        "has_chat_id": bool(target.get("chat_id")),
+        "has_thread_id": bool(target.get("thread_id")),
+        "has_topic_id": bool(target.get("topic_id")),
+    }
 
 
 def get_channel_profile(channel: str) -> dict[str, Any]:
@@ -192,20 +212,4 @@ def format_for_channel(
 
 
 def suggest_channel_strategy(deliverable_type: str | None) -> str:
-    if deliverable_type is None:
-        return "file_first"
-
-    dt_lower = str(deliverable_type).lower()
-
-    short_formats = ["memo", "brief", "summary", "записка", "кратко"]
-    long_formats = ["report", "отчёт", "analysis", "документ", "comparison"]
-
-    for short in short_formats:
-        if short in dt_lower:
-            return "summary_first"
-
-    for long in long_formats:
-        if long in dt_lower:
-            return "file_first"
-
     return "file_first"

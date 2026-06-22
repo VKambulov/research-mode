@@ -21,6 +21,7 @@ QUEUE_DIR = ".research-mode/queue"
 GLOBAL_LOCK_FILE = "global-worker-lock.json"
 WAITERS_FILE = "waiters.json"
 FLOCK_FILE = "queue.lock"
+TERMINAL_TASK_STATUSES = {"awaiting_review", "complete", "failed", "cancelled"}
 
 
 def queue_paths(root: Path) -> dict[str, Path]:
@@ -81,16 +82,41 @@ def _task_path_under_root(root: Path, raw_path: str | None) -> Path | None:
 
 
 def _holder_matching_task_lock_state(root: Path, holder: dict[str, Any]) -> str:
+    return _holder_task_lock_diagnostic(root, holder)["state"]
+
+
+def _holder_task_lock_diagnostic(root: Path, holder: dict[str, Any]) -> dict[str, Any]:
     task_path = _task_path_under_root(root, holder.get("task_path"))
     if task_path is None:
-        return "missing"
+        return {
+            "state": "missing",
+            "finding": _queue_finding(
+                "queue_holder_task_missing",
+                "Global queue holder points outside this research root or has no task path.",
+                holder,
+            ),
+        }
     state_path = task_path / "state.json"
     if not state_path.exists():
-        return "missing"
+        return {
+            "state": "missing",
+            "finding": _queue_finding(
+                "queue_holder_task_missing",
+                "Global queue holder points to a missing task.",
+                holder,
+            ),
+        }
     try:
         state = read_json(state_path)
     except Exception:
-        return "missing"
+        return {
+            "state": "missing",
+            "finding": _queue_finding(
+                "queue_holder_state_unreadable",
+                "Global queue holder task state cannot be read.",
+                holder,
+            ),
+        }
     lock = state.get("lock") or {}
     matches = (
         lock.get("status") == "held"
@@ -99,12 +125,106 @@ def _holder_matching_task_lock_state(root: Path, holder: dict[str, Any]) -> str:
         and state.get("id") == holder.get("task_id")
     )
     if not matches:
-        return "missing"
+        return {
+            "state": "missing",
+            "finding": _queue_finding(
+                "queue_holder_task_lock_mismatch",
+                "Global queue holder does not match the task lock.",
+                holder,
+                {
+                    "task_status": state.get("status"),
+                    "task_lock_status": lock.get("status"),
+                    "task_lock_run_id": lock.get("run_id"),
+                    "task_lock_lease_token": lock.get("lease_token"),
+                },
+            ),
+        }
     age = minutes_since(lock.get("started_at"))
     timeout = effective_lock_stale_timeout_min(state)
     if age is not None and age <= timeout:
-        return "active"
-    return "stale"
+        return {"state": "active", "finding": None}
+    return {"state": "stale", "finding": None}
+
+
+def _queue_finding(
+    code: str,
+    message: str,
+    item: dict[str, Any],
+    extra_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    details = {
+        "task_id": item.get("task_id"),
+        "task_path": item.get("task_path"),
+        "run_id": item.get("run_id") or item.get("last_blocked_by_run_id"),
+    }
+    if extra_details:
+        details.update(extra_details)
+    return {
+        "code": code,
+        "severity": "warning",
+        "status": "manual_review_needed",
+        "message": message,
+        "details": details,
+    }
+
+
+def _waiter_findings(
+    root: Path,
+    waiters: list[dict[str, Any]],
+    *,
+    stale_waiter_timeout_min: int = 120,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for waiter in waiters:
+        task_path = _task_path_under_root(root, waiter.get("task_path"))
+        if task_path is None or not (task_path / "state.json").exists():
+            findings.append(
+                _queue_finding(
+                    "queue_waiter_task_missing",
+                    "Queue waiter points to a missing task.",
+                    waiter,
+                    {"last_seen_at": waiter.get("last_seen_at")},
+                )
+            )
+            continue
+        try:
+            state = read_json(task_path / "state.json")
+        except Exception:
+            findings.append(
+                _queue_finding(
+                    "queue_waiter_state_unreadable",
+                    "Queue waiter task state cannot be read.",
+                    waiter,
+                    {"last_seen_at": waiter.get("last_seen_at")},
+                )
+            )
+            continue
+        if state.get("status") in TERMINAL_TASK_STATUSES:
+            findings.append(
+                _queue_finding(
+                    "queue_terminal_task_waiter",
+                    "Terminal task is still present in the global queue waiters.",
+                    waiter,
+                    {
+                        "task_status": state.get("status"),
+                        "last_seen_at": waiter.get("last_seen_at"),
+                    },
+                )
+            )
+        age = minutes_since(waiter.get("last_seen_at"))
+        if age is not None and age > stale_waiter_timeout_min:
+            findings.append(
+                _queue_finding(
+                    "queue_stale_waiter",
+                    "Queue waiter has not been seen within the stale waiter timeout.",
+                    waiter,
+                    {
+                        "last_seen_at": waiter.get("last_seen_at"),
+                        "stale_waiter_timeout_min": stale_waiter_timeout_min,
+                    },
+                )
+            )
+    return findings
 
 
 def _holder_is_protected(root: Path, holder: dict[str, Any]) -> bool:
@@ -178,7 +298,7 @@ def _prune_waiters(
             state = read_json(task_path / "state.json")
         except Exception:
             state = {}
-        if state.get("status") in {"awaiting_review", "complete", "failed", "cancelled"}:
+        if state.get("status") in TERMINAL_TASK_STATUSES:
             continue
         pruned.append(waiter)
     return pruned
@@ -321,11 +441,17 @@ def release_global_queue(
 def read_queue_status(root: Path) -> dict[str, Any]:
     paths = queue_paths(root)
     holder = _read_json_object(paths["global_lock"])
-    waiters = _prune_waiters(root, _read_waiters(paths["waiters"]))
+    raw_waiters = _read_waiters(paths["waiters"])
+    waiters = _prune_waiters(root, raw_waiters)
     active_holder = holder if holder.get("status") == "held" else {}
-    active_holder_state = (
-        _holder_matching_task_lock_state(root, active_holder) if active_holder else None
+    holder_diagnostic = (
+        _holder_task_lock_diagnostic(root, active_holder) if active_holder else {}
     )
+    active_holder_state = holder_diagnostic.get("state") if active_holder else None
+    findings = []
+    if holder_diagnostic.get("finding"):
+        findings.append(holder_diagnostic["finding"])
+    findings.extend(_waiter_findings(root, raw_waiters))
     if active_holder and active_holder_state == "missing":
         age = minutes_since(active_holder.get("started_at"))
         timeout = int(active_holder.get("stale_timeout_min") or 30)
@@ -343,4 +469,6 @@ def read_queue_status(root: Path) -> dict[str, Any]:
         "active_run_id": active_holder.get("run_id"),
         "waiters": waiters,
         "waiter_count": len(waiters),
+        "findings": findings,
+        "has_findings": bool(findings),
     }

@@ -814,8 +814,8 @@ def test_validation_findings_in_summary_json(root: Path) -> None:
     )
     check_names = {f.get("check") for f in findings}
     assert_in(
-        "draft_artifacts", check_names,
-        "findings should include draft_artifacts check",
+        "finalization_trace", check_names,
+        "findings should include finalization_trace check",
     )
 
 
@@ -1187,6 +1187,131 @@ def test_record_notification_sent_clears_blocked_markers(root: Path) -> None:
         intent_after.get("blocked_reason"),
         None,
         "sent intent should not keep a stale blocked_reason",
+    )
+
+
+def test_record_notification_failed_surfaces_delivery_channel_diagnostic(root: Path) -> None:
+    task_id = "awaiting-review-delivery-failed"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent with failed adapter send",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+            "--thread-id",
+            "thread-456",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    intent = finished.get("delivery_intent") or {}
+
+    recorded = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "failed",
+            "--error-code",
+            "delivery_channel_addressing_failed",
+            "--error",
+            "Invalid RootId for attachment target",
+        )
+    )
+    assert_eq(
+        recorded.get("error_code"),
+        "delivery_channel_addressing_failed",
+        "failed delivery should expose normalized error code",
+    )
+
+    state_after = json.loads((root / task_id / "state.json").read_text(encoding="utf-8"))
+    intent_after = next(
+        item
+        for item in state_after.get("delivery_intents", [])
+        if item.get("id") == intent["id"]
+    )
+    shape = intent_after.get("provider_target_shape") or {}
+    assert_eq(shape.get("channel"), "mattermost", "target shape should keep provider kind")
+    assert_true(shape.get("has_chat_id"), "target shape should expose chat id presence")
+    assert_true(shape.get("has_thread_id"), "target shape should expose thread id presence")
+    assert_true("chat_id" not in shape, "target shape should not expose private ids")
+
+    summary = json_out(run("summary", "--root", str(root), "--id", task_id, "--format", "json"))
+    attention = summary.get("operator_attention") or {}
+    assert_true(
+        any(
+            item.get("code") == "delivery_channel_addressing_failed"
+            for item in attention.get("conditions") or []
+        ),
+        "summary should surface delivery channel diagnostic",
+    )
+    health = json_out(run("health", "--root", str(root), "--id", task_id, "--format", "json"))
+    assert_true(
+        any(
+            item.get("code") == "delivery_channel_addressing_failed"
+            for item in health.get("findings") or []
+        ),
+        "health should surface delivery channel diagnostic",
+    )
+
+
+def test_record_notification_error_text_does_not_infer_addressing(root: Path) -> None:
+    task_id = "awaiting-review-delivery-generic-failed"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Awaiting review delivery intent with opaque provider failure",
+            "--deliverable",
+            "full report",
+            "--channel",
+            "mattermost",
+            "--chat-id",
+            "channel-123",
+        )
+    )
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finished = finish_to_awaiting_review(root, task_id, lease)
+    intent = finished.get("delivery_intent") or {}
+
+    recorded = json_out(
+        run(
+            "record-notification",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--delivery-intent-id",
+            intent["id"],
+            "--status",
+            "failed",
+            "--error",
+            "thread timeout while sending",
+        )
+    )
+
+    assert_eq(
+        recorded.get("error_code"),
+        "delivery_notification_failed",
+        "provider text must not infer addressing without explicit error code",
     )
 
 
@@ -1846,8 +1971,8 @@ def test_playbook_validation_scorecard(root: Path) -> None:
         "playbook should have Validation scorecard section",
     )
     assert_in(
-        "draft_artifacts", playbook_text,
-        "playbook should show draft_artifacts check name",
+        "human_readiness", playbook_text,
+        "playbook should show human_readiness check name",
     )
     assert_in(
         "FAIL", playbook_text,

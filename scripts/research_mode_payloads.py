@@ -7,6 +7,17 @@ from typing import Any
 from research_mode_task import ResearchTask
 from research_mode_utils import NO_ACTIVE_LEASE, ValidationError, utc_now
 
+CANONICAL_DELIVERABLE_KINDS = {
+    "markdown_report",
+    "pdf_report",
+    "docx_report",
+    "html_report",
+    "xlsx",
+    "csv",
+    "package",
+    "unknown",
+}
+
 
 def normalize_string_list(value: Any) -> list[str]:
     if value is None:
@@ -116,6 +127,12 @@ def _normalize_typed_artifacts(value: Any, label: str) -> list[dict[str, Any]]:
         entry = {"path": artifact_path, "kind": artifact_kind}
         if artifact_note:
             entry["note"] = artifact_note
+        artifact_visibility = str(item.get("visibility") or "").strip()
+        if artifact_visibility:
+            entry["visibility"] = artifact_visibility
+        artifact_role = str(item.get("role") or "").strip()
+        if artifact_role:
+            entry["role"] = artifact_role
         result.append(entry)
     return result
 
@@ -152,6 +169,7 @@ def finalization_defaults() -> dict[str, Any]:
         "inferred_user_need": None,
         "intended_recipient": None,
         "primary_deliverable_kind": None,
+        "deliverable_decision": None,
         "internal_artifacts": [],
         "candidate_artifacts": [],
         "blocking_defects": [],
@@ -161,6 +179,44 @@ def finalization_defaults() -> dict[str, Any]:
         "last_validation_findings": [],
         "last_validated_at": None,
     }
+
+
+def output_contract_defaults() -> dict[str, Any]:
+    return {
+        "kind": None,
+        "quality_checks": [],
+        "search_profile": None,
+    }
+
+
+def normalize_output_contract(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return output_contract_defaults()
+    if not isinstance(value, dict):
+        raise ValidationError("output_contract must be an object")
+    result = output_contract_defaults()
+    kind = value.get("kind")
+    if kind not in (None, ""):
+        kind = str(kind).strip()
+        if kind not in CANONICAL_DELIVERABLE_KINDS:
+            allowed = ", ".join(sorted(CANONICAL_DELIVERABLE_KINDS))
+            raise ValidationError(f"Unsupported output_contract.kind: {kind}. Allowed: {allowed}")
+        result["kind"] = kind
+    quality_checks = value.get("quality_checks")
+    if quality_checks is not None:
+        if not isinstance(quality_checks, list):
+            raise ValidationError("output_contract.quality_checks must be a list")
+        result["quality_checks"] = quality_checks
+    search_profile = value.get("search_profile")
+    if search_profile not in (None, ""):
+        if not isinstance(search_profile, dict):
+            raise ValidationError("output_contract.search_profile must be an object")
+        result["search_profile"] = {
+            str(key).strip(): item
+            for key, item in search_profile.items()
+            if str(key).strip() and item not in (None, "")
+        } or None
+    return result
 
 
 def adequacy_defaults() -> dict[str, Any]:
@@ -292,6 +348,30 @@ def normalize_finalization_trace(value: Any) -> dict[str, Any] | None:
     for key in ("inferred_user_need", "intended_recipient", "primary_deliverable_kind"):
         text = str(value.get(key) or "").strip()
         result[key] = text or None
+    deliverable_decision = value.get("deliverable_decision")
+    if deliverable_decision not in (None, ""):
+        if not isinstance(deliverable_decision, dict):
+            deliverable_decision = {
+                "reason": str(deliverable_decision).strip(),
+                "source": "worker_note",
+            }
+        cleaned_decision: dict[str, Any] = {}
+        for key in (
+            "selected_kind",
+            "desired_kind",
+            "feasible_kind",
+            "reason",
+            "source",
+        ):
+            text = str(deliverable_decision.get(key) or "").strip()
+            if text:
+                cleaned_decision[key] = text
+        alternatives = deliverable_decision.get("alternatives_considered")
+        if alternatives is not None:
+            cleaned_decision["alternatives_considered"] = normalize_string_list(
+                alternatives
+            )
+        result["deliverable_decision"] = cleaned_decision or None
     for key in ("max_attempts", "attempt_count"):
         raw_number = value.get(key)
         if raw_number not in (None, ""):
@@ -531,6 +611,9 @@ def build_initial_state(
             ),
             "deliverable": (
                 str(getattr(args, "deliverable", "") or "").strip() or None
+            ),
+            "output_contract": normalize_output_contract(
+                {"kind": getattr(args, "deliverable_kind", None)}
             ),
             "contract": None,
             "user_instructions": normalize_string_list(

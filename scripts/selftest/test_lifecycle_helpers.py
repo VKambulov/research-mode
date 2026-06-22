@@ -17,7 +17,9 @@ from research_mode_lifecycle_helpers import (
     compute_confidence_score,
     compute_low_yield,
     compute_source_quality_score,
+    detect_comparative_structure,
     enrich_findings_with_provenance,
+    inspect_deliverable_requirements,
     render_confidence_badge,
     should_notify,
 )
@@ -48,6 +50,67 @@ def test_adequacy_contract_carries_goal_constraints_and_open_questions(root: Pat
     assert_in("Use primary sources where possible.", contract["constraints"], "contract should carry constraints")
     assert_in("short comparative memo", " ".join(guidance), "guidance should mention requested deliverable")
     assert_in("Russian", " ".join(guidance), "guidance should include explicit user instructions")
+
+
+def test_detect_comparative_structure_accepts_ranked_table(root: Path) -> None:
+    report = """# Recommendation
+
+| 甲 | 乙 | 丙 | 丁 |
+| --- | --- | --- | --- |
+| 1 | A | choose | supply |
+| 2 | B | backup | price |
+"""
+
+    result = detect_comparative_structure(report)
+
+    assert_eq(result["passed"], True, "table shape should be comparative")
+    assert_in("table_shape", result["signals"], "table shape signal should be explicit")
+
+
+def test_detect_comparative_structure_accepts_risk_matrix(root: Path) -> None:
+    report = """# Decision Matrix
+
+| 一 | 二 |
+| --- | --- |
+| A | supplier reserve |
+| B | price cap |
+"""
+
+    result = detect_comparative_structure(report)
+
+    assert_eq(result["passed"], True, "matrix shape should be comparative")
+    assert_in("table_shape", result["signals"], "table shape signal should be explicit")
+
+
+def test_comparative_deliverable_rejects_plain_bullets_without_criteria(root: Path) -> None:
+    report = """# Options
+
+- A is cheap.
+- B is reliable.
+"""
+
+    validation = inspect_deliverable_requirements(
+        "comparative memo",
+        report,
+        payload={},
+        total_sources=2,
+        total_findings=2,
+        output_contract={
+            "quality_checks": [
+                {"kind": "comparative_matrix", "min_rows": 2, "min_columns": 2}
+            ]
+        },
+    )
+    comparative_check = next(
+        check for check in validation["checks"] if check["kind"] == "comparative_matrix"
+    )
+
+    assert_eq(comparative_check["passed"], False, "plain bullets should not satisfy comparative shape")
+    assert_in(
+        "deliverable_comparative_shape_weak",
+        validation["reasons"],
+        "plain bullets should produce actionable comparative rejection",
+    )
 
 def test_confidence_no_sources(root: Path) -> None:
     finding = {"kind": "fact", "text": "Claim without refs"}
@@ -110,33 +173,27 @@ def test_confidence_downgraded_to_reserve(root: Path) -> None:
 
 # --- compute_source_quality_score ---
 
-def test_source_quality_official(root: Path) -> None:
-    result = compute_source_quality_score({"url": "https://data.gov.ru/dataset"})
-    assert_in("official_domain", result["factors"], "gov domain should be flagged as official")
-    assert_true(result["quality_score"] > 0.5, "official source should score above base")
-
-
-def test_source_quality_user_generated(root: Path) -> None:
-    result = compute_source_quality_score({"url": "https://reddit.com/r/test"})
-    assert_in("user_generated_platform", result["factors"], "reddit should be flagged as user-gen")
-    assert_true(result["quality_score"] < 0.5, "user-gen source should score below base")
-
-
-def test_source_quality_authoritative_tag(root: Path) -> None:
+def test_source_quality_ignores_domain_and_tags(root: Path) -> None:
     result = compute_source_quality_score({
-        "url": "https://example.com",
-        "tags": ["primary", "verified"],
+        "url": "https://agency.gov/report",
+        "tags": ["official_source", "primary_source", "user_generated", "stale"],
     })
-    assert_in("authoritative_tag", result["factors"], "verified tag should boost score")
+    assert_eq(result["factors"], [], "source quality should not infer authority from tags or domains")
+    assert_eq(result["quality_score"], 0.5, "domain and tag labels should not alter quality score")
 
 
-def test_source_quality_stale_tag(root: Path) -> None:
-    result = compute_source_quality_score({
+def test_source_quality_uses_structured_fetch_timestamp(root: Path) -> None:
+    fresh = compute_source_quality_score({
         "url": "https://example.com",
-        "tags": ["stale"],
+        "fetched_at": "2999-01-01T00:00:00Z",
     })
-    assert_in("stale_tag", result["factors"], "stale tag should penalize score")
-    assert_true(result["quality_score"] < 0.5, "stale-tagged source should be below base")
+    old = compute_source_quality_score({
+        "url": "https://example.com",
+        "fetched_at": "2020-01-01T00:00:00Z",
+    })
+    assert_in("fresh_30d", fresh["factors"], "fresh timestamp should raise quality")
+    assert_in("stale_over_1yr", old["factors"], "old timestamp should lower quality")
+    assert_true(fresh["quality_score"] > old["quality_score"], "timestamp should be the only scoring signal here")
 
 
 def test_source_quality_tier_mapping(root: Path) -> None:
@@ -144,8 +201,11 @@ def test_source_quality_tier_mapping(root: Path) -> None:
     assert_eq(plain["quality_score"], 0.5, "plain URL -> base score 0.5")
     assert_eq(plain["tier"], "weak", "score 0.5 < 0.55 threshold -> weak tier")
 
-    official = compute_source_quality_score({"url": "https://example.gov/data"})
-    assert_eq(official["tier"], "authoritative", "official domain -> authoritative tier")
+    fresh = compute_source_quality_score({
+        "url": "https://example.com",
+        "fetched_at": "2999-01-01T00:00:00Z",
+    })
+    assert_eq(fresh["tier"], "standard", "fresh timestamp -> standard tier")
 
 
 # --- enrich_findings_with_provenance ---

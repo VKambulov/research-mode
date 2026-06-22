@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
 from research_mode_utils import ValidationError, is_relative_to, resolve_under_task
 
 
@@ -22,21 +23,172 @@ FINALIZATION_REQUIRED_TRACE_FIELDS = [
     "validation_evidence",
 ]
 
-RAW_FINAL_ARTIFACT_SIGNALS = [
-    "raw",
-    "draft",
-    "internal",
-    "working",
-    "workspace/",
-    "iterations/",
-    ".tmp/",
-    "evidence_urls",
-    "confidence",
-    "active/unknown",
-]
-
 PACKAGE_KINDS = {"package", "final_package"}
 PACKAGE_ENTRYPOINTS = ("README.md", "index.md", "final-report.md")
+EXPECTED_FORMATS_BY_PRIMARY_KIND = {
+    "markdown_report": {"markdown"},
+    "pdf_report": {"pdf"},
+    "docx_report": {"docx"},
+    "html_report": {"html", "htm"},
+    "xlsx": {"xlsx"},
+    "csv": {"csv"},
+    "package": {"package"},
+}
+
+
+def expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
+    return EXPECTED_FORMATS_BY_PRIMARY_KIND.get(
+        str(primary_kind or "").strip().lower(),
+        set(),
+    )
+
+
+def _expected_formats_for_primary_kind(primary_kind: str) -> set[str]:
+    return expected_formats_for_primary_kind(primary_kind)
+
+
+def _format_mismatch_reasons(
+    primary_kind: str,
+    actual_format: str | None,
+) -> list[str]:
+    expected = _expected_formats_for_primary_kind(primary_kind)
+    if not expected:
+        return []
+    actual = str(actual_format or "").strip().lower()
+    if actual in expected:
+        return []
+    return ["primary_deliverable_format_mismatch"]
+
+
+def _canonical_deliverable_kind(kind: str | None) -> str | None:
+    cleaned = str(kind or "").strip().lower()
+    if not cleaned:
+        return None
+    if cleaned in CANONICAL_DELIVERABLE_KINDS:
+        return cleaned
+    return None
+
+
+def _format_to_deliverable_kind(artifact_format: str) -> str | None:
+    if artifact_format == "package":
+        return "package"
+    if artifact_format in {"markdown", "md"}:
+        return "markdown_report"
+    if artifact_format in {"pdf", "docx"}:
+        return f"{artifact_format}_report"
+    if artifact_format in {"html", "htm"}:
+        return "html_report"
+    if artifact_format in {"xlsx", "csv"}:
+        return artifact_format
+    return None
+
+
+def _artifact_format_kind(
+    artifact_check: dict[str, Any] | None,
+    *,
+    preferred_primary_kind: str | None = None,
+) -> str | None:
+    artifacts = (artifact_check or {}).get("artifacts") or []
+    expected_formats = _expected_formats_for_primary_kind(str(preferred_primary_kind or ""))
+    if expected_formats:
+        for artifact in artifacts:
+            artifact_format = str(artifact.get("format") or "").strip().lower()
+            if artifact_format in expected_formats:
+                return _format_to_deliverable_kind(artifact_format)
+    for artifact in (artifact_check or {}).get("artifacts") or []:
+        artifact_format = str(artifact.get("format") or "").strip().lower()
+        deliverable_kind = _format_to_deliverable_kind(artifact_format)
+        if deliverable_kind:
+            return deliverable_kind
+    return None
+
+
+def build_deliverable_format_decision(
+    *,
+    state: dict[str, Any],
+    finalization: dict[str, Any] | None,
+    report_markdown: str,
+    artifact_check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    trace = finalization or {}
+    working_memory = state.get("working_memory") or {}
+    output_contract = working_memory.get("output_contract") or {}
+    contract_kind = _canonical_deliverable_kind(output_contract.get("kind"))
+    declared_raw = str(trace.get("primary_deliverable_kind") or "").strip().lower()
+    primary_kind = _canonical_deliverable_kind(declared_raw)
+    feasible_kind = _artifact_format_kind(
+        artifact_check,
+        preferred_primary_kind=contract_kind or primary_kind,
+    )
+    if not feasible_kind and str(report_markdown or "").strip():
+        feasible_kind = "markdown_report"
+
+    alternatives: list[str] = []
+    unsupported_primary_kind = bool(declared_raw and primary_kind is None)
+    if contract_kind:
+        selected_kind = contract_kind
+        desired_kind = contract_kind
+        source = "contract"
+        reason = "Structured output contract requested this deliverable kind."
+    elif primary_kind:
+        selected_kind = primary_kind
+        desired_kind = primary_kind
+        source = "declared"
+        reason = "Worker declared this primary deliverable kind."
+    elif feasible_kind:
+        selected_kind = feasible_kind
+        desired_kind = feasible_kind
+        source = "artifact"
+        reason = "Inspected artifact format selected the feasible deliverable kind."
+    else:
+        selected_kind = "unknown"
+        desired_kind = "unknown"
+        feasible_kind = "unknown"
+        source = "unknown"
+        reason = "No structured output contract, declared kind, or artifact format is available."
+
+    return {
+        "selected_kind": selected_kind,
+        "desired_kind": desired_kind,
+        "feasible_kind": feasible_kind,
+        "reason": reason,
+        "source": source,
+        "alternatives_considered": alternatives,
+        "unsupported_primary_deliverable_kind": (
+            declared_raw if unsupported_primary_kind else None
+        ),
+    }
+
+
+def check_deliverable_format_decision(
+    *,
+    state: dict[str, Any],
+    finalization: dict[str, Any] | None,
+    report_markdown: str,
+    artifact_check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    decision = build_deliverable_format_decision(
+        state=state,
+        finalization=finalization,
+        report_markdown=report_markdown,
+        artifact_check=artifact_check,
+    )
+    desired_kind = decision.get("desired_kind")
+    feasible_kind = decision.get("feasible_kind")
+    reasons: list[str] = []
+    if decision.get("unsupported_primary_deliverable_kind"):
+        reasons.append("unsupported_primary_deliverable_kind")
+    if desired_kind != feasible_kind:
+        if decision.get("source") == "contract":
+            reasons.append("output_contract_format_mismatch")
+        elif decision.get("source") == "declared":
+            reasons.append("declared_deliverable_format_mismatch")
+    return {
+        "check": "deliverable_format_decision",
+        "passed": not reasons,
+        "reasons": reasons,
+        **decision,
+    }
 
 
 def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
@@ -49,9 +201,25 @@ def build_finalization_contract(state: dict[str, Any]) -> dict[str, Any]:
             "blocking_defects must be empty",
             "validation_evidence must describe what was checked",
             "candidate_artifacts must be user-facing or the report text must be self-contained",
-            "raw/internal workspace artifacts must not be exposed as the final result",
+            "candidate_artifacts should set visibility to user_facing or internal",
+            "the primary user-facing artifact should set role to primary",
+            "internal workspace artifacts must not be exposed as the final result",
         ],
-        "raw_artifact_signals": RAW_FINAL_ARTIFACT_SIGNALS,
+        "candidate_artifact_requirements": {
+            "visibility": ["user_facing", "internal"],
+            "primary_role": "primary",
+            "internal_paths": [
+                "iterations/",
+                ".tmp/",
+                "workspace/tmp/",
+                "workspace/analysis/",
+                "workspace/data/",
+                "workspace/tools/",
+                "workspace/vision/",
+                "workspace/screenshots/",
+            ],
+            "package_exception": "package artifacts may live under workspace/outputs/",
+        },
         "requested_deliverable": working_memory.get("deliverable"),
         "current_status": finalization.get("status") or "not_started",
         "attempt_count": int(finalization.get("attempt_count") or 0),
@@ -77,6 +245,7 @@ def build_finalization_surface(state: dict[str, Any]) -> dict[str, Any]:
         "inferred_user_need": finalization.get("inferred_user_need"),
         "intended_recipient": finalization.get("intended_recipient"),
         "primary_deliverable_kind": finalization.get("primary_deliverable_kind"),
+        "deliverable_decision": finalization.get("deliverable_decision"),
         "internal_artifacts": internal_artifacts,
         "candidate_artifacts": candidate_artifacts,
         "blocking_defects": blocking_defects,
@@ -218,16 +387,20 @@ def inspect_candidate_artifacts(
     primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
 
     if not candidate_artifacts:
+        reasons = [] if report_text else ["primary_deliverable_missing"]
+        if report_text:
+            reasons.extend(_format_mismatch_reasons(primary_kind, "markdown"))
         return {
             "check": "candidate_artifact_inspection",
-            "passed": bool(report_text),
-            "reasons": [] if report_text else ["primary_deliverable_missing"],
+            "passed": bool(report_text) and not reasons,
+            "reasons": reasons,
             "artifacts": [],
             "mode": "self_contained_report" if report_text else "missing",
         }
 
     checked: list[dict[str, Any]] = []
     reasons: list[str] = []
+    expected_formats = _expected_formats_for_primary_kind(primary_kind)
 
     for artifact in candidate_artifacts:
         artifact_path = str(artifact.get("path") or "").strip()
@@ -308,6 +481,25 @@ def inspect_candidate_artifacts(
             }
         )
         reasons.extend(file_result.get("reasons") or [])
+
+    if expected_formats:
+        has_matching_primary = any(
+            str(item.get("format") or "").strip().lower() in expected_formats
+            for item in checked
+        )
+        if not has_matching_primary:
+            reasons.append("primary_deliverable_format_mismatch")
+            for item in checked:
+                artifact_format = str(item.get("format") or "").strip().lower()
+                if artifact_format and artifact_format not in expected_formats:
+                    item["reasons"] = list(
+                        dict.fromkeys(
+                            [
+                                *(item.get("reasons") or []),
+                                "primary_deliverable_format_mismatch",
+                            ]
+                        )
+                    )
 
     deduped_reasons = list(dict.fromkeys(reasons))
     return {

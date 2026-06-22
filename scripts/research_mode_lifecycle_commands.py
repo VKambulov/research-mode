@@ -46,6 +46,7 @@ from research_mode_reasons import (
     reason_for_finish,
     set_history_reason,
 )
+from research_mode_reliability import clear_failure_counter, record_failure_event
 from research_mode_queue import acquire_global_queue, release_global_queue
 from research_mode_reporting import append_run_log, refresh_task_playbook
 from research_mode_runtime import (
@@ -53,6 +54,11 @@ from research_mode_runtime import (
     remove_cron_job,
     snapshot_job_binding,
     suspend_bound_job,
+)
+from research_mode_finalization import expected_formats_for_primary_kind
+from research_mode_surface_delivery import (
+    classify_delivery_error,
+    notification_target_shape,
 )
 from research_mode_task import ResearchTask, StateManager
 from research_mode_utils import (
@@ -66,6 +72,7 @@ from research_mode_utils import (
     pending_result_path,
     parse_ts,
     read_json,
+    resolve_under_task,
     utc_now,
 )
 
@@ -74,6 +81,54 @@ REVIEW_WAIT_STATUSES = {"awaiting_review"}
 PHASES = {"preflight", "search", "analyze", "synthesize", "verify", "finalize"}
 PREFLIGHT_DECISIONS = {"go", "go_with_warnings", "needs_setup", "blocked", "skipped"}
 WORKER_PREFLIGHT_DECISIONS = PREFLIGHT_DECISIONS - {"skipped"}
+
+
+def _replace_state_contents(state: dict[str, Any], updated: dict[str, Any]) -> None:
+    state.clear()
+    state.update(updated)
+
+
+def _record_completion_validation_rejection(
+    state: dict[str, Any],
+    *,
+    run_id: str,
+    phase: str,
+    completion_validation: dict[str, Any],
+    at: str,
+) -> None:
+    updated = record_failure_event(
+        state,
+        {
+            "code": "completion_validation_retry_loop",
+            "severity": "warning",
+            "phase": phase,
+            "run_id": run_id,
+            "reasons": completion_validation.get("reasons") or [],
+        },
+        at=at,
+    )
+    _replace_state_contents(state, updated)
+
+
+def _clear_completion_validation_retry_counter(
+    state: dict[str, Any],
+    *,
+    at: str,
+) -> None:
+    counter = (
+        ((state.get("reliability") or {}).get("failure_counters") or {}).get(
+            "completion_validation_retry_loop"
+        )
+        or {}
+    )
+    if counter.get("status") != "active":
+        return
+    updated = clear_failure_counter(
+        state,
+        "completion_validation_retry_loop",
+        at=at,
+    )
+    _replace_state_contents(state, updated)
 
 
 def _normalize_preflight_payload(value: Any) -> dict[str, Any]:
@@ -166,6 +221,46 @@ def _package_delivery_from_validation(
                     "primary_file": entrypoint_path,
                     "attachments": artifact.get("attachments") or [],
                 }
+    return None
+
+
+def _primary_file_from_validation(
+    task: ResearchTask,
+    validation_result: dict[str, Any] | None,
+) -> str | None:
+    if not validation_result or not validation_result.get("passed"):
+        return None
+
+    decision = validation_result.get("deliverable_decision") or {}
+    selected_kind = str(decision.get("selected_kind") or "").strip().lower()
+    expected_formats = expected_formats_for_primary_kind(selected_kind)
+    if not expected_formats:
+        return None
+
+    for finding in validation_result.get("findings") or []:
+        if finding.get("check") != "candidate_artifact_inspection":
+            continue
+        for artifact in finding.get("artifacts") or []:
+            artifact_format = str(artifact.get("format") or "").strip().lower()
+            if artifact_format not in expected_formats:
+                continue
+            if artifact.get("reasons"):
+                continue
+            if not artifact.get("exists") or not artifact.get("inside_task"):
+                continue
+            if artifact.get("is_file") is False:
+                continue
+            artifact_path = str(artifact.get("path") or "").strip()
+            if not artifact_path:
+                continue
+            try:
+                resolved = resolve_under_task(
+                    task.task_dir, artifact_path, label="delivery primary artifact"
+                )
+            except ValidationError:
+                continue
+            if resolved.is_file():
+                return str(resolved)
     return None
 
 
@@ -1010,6 +1105,7 @@ def _finish_iteration_impl(
                 "candidate_status": "complete",
             }
             if completion_validation["passed"]:
+                _clear_completion_validation_retry_counter(state, at=now)
                 if is_worker_initiated_final:
                     finalization_validation = _run_v13_finalization_validation(
                         task, state, payload, report_markdown=str(report)
@@ -1024,6 +1120,7 @@ def _finish_iteration_impl(
                         "primary_deliverable_kind",
                         "internal_artifacts",
                         "candidate_artifacts",
+                        "deliverable_decision",
                         "blocking_defects",
                         "nonblocking_defects",
                         "revisions",
@@ -1031,6 +1128,10 @@ def _finish_iteration_impl(
                     ):
                         if key in payload_finalization:
                             finalization_state[key] = payload_finalization[key]
+                    if finalization_validation.get("deliverable_decision"):
+                        finalization_state["deliverable_decision"] = (
+                            finalization_validation["deliverable_decision"]
+                        )
                     finalization_state["last_validation_findings"] = (
                         finalization_validation.get("findings") or []
                     )
@@ -1062,7 +1163,12 @@ def _finish_iteration_impl(
                             )
                             saved_report_path = str(task.final_report_path)
                             state["artifacts"]["final_report_path"] = saved_report_path
-                            state["delivery"]["primary_file"] = saved_report_path
+                            primary_file = _primary_file_from_validation(
+                                task, finalization_validation
+                            )
+                            state["delivery"]["primary_file"] = (
+                                primary_file or saved_report_path
+                            )
                         finalization_state["status"] = "passed"
                         state["delivery"]["review_ready"] = True
                         state["delivery"]["ready"] = False
@@ -1111,6 +1217,13 @@ def _finish_iteration_impl(
                     if review.get("status") == "changes_requested":
                         review["status"] = "pending"
             else:
+                _record_completion_validation_rejection(
+                    state,
+                    run_id=args.run_id,
+                    phase=phase,
+                    completion_validation=completion_validation,
+                    at=now,
+                )
                 next_status = "idle"
                 clear_reviewable_candidate(state)
 
@@ -1562,11 +1675,21 @@ def record_notification_command(args: argparse.Namespace) -> int:
             intent["status"] = "sent"
             intent["sent_at"] = intent.get("sent_at") or now
             intent["error"] = None
+            intent["error_code"] = None
+            intent["provider_target_shape"] = None
             intent["blocked_reason"] = None
         elif target_status == "failed":
             intent["status"] = "failed"
             intent["failed_at"] = now
             intent["error"] = str(args.error or "").strip() or "delivery failed"
+            error_code = (
+                str(getattr(args, "error_code", "") or "").strip()
+                or classify_delivery_error(intent.get("error"))
+            )
+            intent["error_code"] = error_code
+            intent["provider_target_shape"] = notification_target_shape(
+                intent.get("notification_target") or {}
+            )
         else:
             raise ValidationError(f"Unsupported notification status: {target_status}")
 
@@ -1579,6 +1702,7 @@ def record_notification_command(args: argparse.Namespace) -> int:
                 "delivery_intent_id": intent_id,
                 "previous_status": previous_status,
                 "status": intent["status"],
+                "error_code": intent.get("error_code"),
                 "sent_incremented": sent_incremented,
             }
         )
@@ -1586,6 +1710,8 @@ def record_notification_command(args: argparse.Namespace) -> int:
             "status": intent["status"],
             "delivery_intent_id": intent_id,
             "previous_status": previous_status,
+            "error_code": intent.get("error_code"),
+            "provider_target_shape": intent.get("provider_target_shape"),
             "sent_incremented": sent_incremented,
             "sent_updates": int(
                 state.setdefault("delivery", {}).get("sent_updates") or 0

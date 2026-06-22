@@ -8,6 +8,34 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
+- Added a minimal read-only reliability diagnostics foundation: optional
+  `state.reliability` counters, summary/health/operator-attention surfacing,
+  task-playbook visibility, and old-state compatibility tests.
+- Repeated identical completion-validation rejections now record reliability
+  events and surface `completion_validation_retry_loop` as manual operator
+  attention after the second repeat; a successful completion validation clears
+  the active retry warning.
+- Comparative deliverable validation is now contract-driven: it runs only when
+  `working_memory.output_contract.quality_checks` asks for a
+  `comparative_matrix`, and it checks table shape rather than header language.
+- Finalization now rejects obvious primary-deliverable format mismatches, such
+  as `pdf_report` pointing at Markdown, and delivery handoff mismatches surface
+  as `delivery_artifact_handoff_failed` operator attention.
+- Failed delivery notifications can now carry optional provider-neutral
+  diagnostics: `error_code` and sanitized `provider_target_shape`, with
+  `delivery_channel_addressing_failed` surfaced in summary/health.
+- Finalization now records an optional `deliverable_decision` with selected,
+  desired, and feasible user-facing formats. Desired format comes from
+  `working_memory.output_contract.kind` or canonical
+  `finalization.primary_deliverable_kind`; free-text deliverables and chat/thread
+  context do not infer `pdf_report`.
+- `queue-status` now returns read-only queue findings for missing holder tasks,
+  holder/task lock mismatches, stale waiters, and terminal tasks still present
+  in waiters; task-specific queue findings also appear in `health`.
+- Added a deterministic reliability soak test for the finalization format
+  decision path. Failed finalization findings now surface in `health`, so
+  operators can see structured rework reasons such as
+  `output_contract_format_mismatch` without reading raw state.
 - Removed the source `skill-card.md` after confirming ClawHub treats Skill Cards
   as generated registry artifacts and filters local copies during publish.
 
@@ -212,6 +240,34 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
+- Добавлена минимальная read-only основа reliability diagnostics: optional
+  counters в `state.reliability`, вывод в summary/health/operator-attention,
+  видимость в task-playbook и проверки совместимости старых state.
+- Повторяющиеся одинаковые отказы completion validation теперь записываются как
+  reliability events и после второго повтора показывают
+  `completion_validation_retry_loop` как ручное внимание оператора; успешная
+  completion validation очищает активное предупреждение.
+- Проверка сравнительных результатов теперь contract-driven: она запускается
+  только когда `working_memory.output_contract.quality_checks` просит
+  `comparative_matrix`, и проверяет форму таблицы, а не язык заголовков.
+- Финальная проверка теперь отклоняет очевидное несоответствие формата, например
+  `pdf_report`, указывающий на Markdown, а проблемы передачи артефакта в
+  delivery выводятся как `delivery_artifact_handoff_failed`.
+- Ошибки доставки теперь могут хранить optional provider-neutral diagnostics:
+  `error_code` и безопасную `provider_target_shape`; проблема формы цели
+  выводится в summary/health как `delivery_channel_addressing_failed`.
+- Финальная проверка теперь записывает optional `deliverable_decision` с
+  выбранным, желаемым и фактически доступным пользовательским форматом. Желаемый
+  формат берётся из `working_memory.output_contract.kind` или канонического
+  `finalization.primary_deliverable_kind`; свободный текст deliverable и
+  chat/thread context не выводят `pdf_report`.
+- `queue-status` теперь возвращает read-only queue findings для missing holder
+  task, holder/task lock mismatch, stale waiters и terminal tasks, оставшихся в
+  waiters; task-specific queue findings также видны в `health`.
+- Добавлен deterministic reliability soak test для пути finalization format
+  decision. Failed finalization findings теперь видны в `health`, чтобы оператор
+  видел структурные rework reasons вроде `output_contract_format_mismatch` без
+  ручного чтения raw state.
 - Удалён исходный `skill-card.md`: ClawHub считает Skill Card генерируемым
   registry-артефактом и фильтрует локальные копии при публикации.
 

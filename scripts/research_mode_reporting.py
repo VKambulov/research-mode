@@ -4,6 +4,7 @@ from typing import Any
 
 from research_mode_adequacy import build_adequacy_operator_next_action
 from research_mode_finalization import build_finalization_surface
+from research_mode_reliability import build_reliability_attention
 from research_mode_surfaces import compute_budget_phase, compute_consistency_warnings
 from research_mode_task import ResearchTask
 from research_mode_utils import (
@@ -425,6 +426,14 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
             lines.append(
                 f"- Primary deliverable kind: {finalization.get('primary_deliverable_kind')}"
             )
+        decision = finalization.get("deliverable_decision") or {}
+        if decision:
+            lines.append(
+                "- Deliverable format decision: "
+                f"{decision.get('selected_kind') or '-'} "
+                f"(source={decision.get('source') or '-'}, "
+                f"feasible={decision.get('feasible_kind') or '-'})"
+            )
         if finalization.get("internal_artifacts_count") or finalization.get(
             "candidate_artifacts_count"
         ):
@@ -452,16 +461,70 @@ def render_task_playbook(task: ResearchTask, state: dict[str, Any]) -> str:
                 lines.append(f"  - {check}: {passed} ({reasons_str})")
         lines.append("")
 
+    reliability_attention = build_reliability_attention(state)
+    lines.extend(
+        [
+            "## Reliability",
+            "",
+            f"- Status: `{reliability_attention.get('status') or 'ok'}`",
+        ]
+    )
+    reliability = state.get("reliability") or {}
+    counters = reliability.get("failure_counters") or {}
+    if counters:
+        lines.append("- Failure counters:")
+        for code, counter in sorted(counters.items()):
+            if not isinstance(counter, dict):
+                continue
+            lines.append(
+                f"  - `{code}`: status={counter.get('status') or '-'}, "
+                f"count={int(counter.get('count') or 0)}, "
+                f"fingerprint={counter.get('fingerprint') or '-'}"
+            )
+    conditions = reliability_attention.get("conditions") or []
+    if conditions:
+        lines.append("- Conditions:")
+        for condition in conditions[:5]:
+            lines.append(
+                f"  - `{condition.get('code')}`: {condition.get('message') or '-'}"
+            )
+    lines.append("")
+
     delivery = state.get("delivery") or {}
-    if delivery.get("primary_file") or delivery.get("ready"):
+    consistency = compute_consistency_warnings(state)
+    delivery_warnings = [
+        warning
+        for warning in consistency.get("warnings") or []
+        if str(warning.get("code") or "")
+        in {
+            "missing_reviewable_artifact",
+            "delivery_ready_but_missing_primary",
+            "delivery_artifact_handoff_failed",
+            "delivery_channel_addressing_failed",
+            "delivery_notification_failed",
+        }
+    ]
+    if (
+        delivery.get("primary_file")
+        or delivery.get("review_ready")
+        or delivery.get("ready")
+        or delivery_warnings
+    ):
         lines.extend(
             [
                 "## Delivery",
                 "",
+                f"- Review ready: {'yes' if delivery.get('review_ready') else 'no'}",
                 f"- Ready: {'yes' if delivery.get('ready') else 'no'}",
                 f"- Primary file: {delivery.get('primary_file') or '-'}",
             ]
         )
+        if delivery_warnings:
+            lines.append("- Handoff warnings:")
+            for warning in delivery_warnings:
+                code = warning.get("code") or "unknown"
+                message = warning.get("message") or "-"
+                lines.append(f"  - `{code}`: {message}")
         attachments = delivery.get("attachments") or []
         if attachments:
             lines.append("- Attachments:")

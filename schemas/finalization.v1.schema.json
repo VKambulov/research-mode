@@ -8,7 +8,32 @@
   "required": ["status"],
   "properties": {
     "status": {"type": "string"},
-    "primary_deliverable_kind": {"type": ["string", "null"]},
+    "primary_deliverable_kind": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "markdown_report",
+        "pdf_report",
+        "docx_report",
+        "html_report",
+        "xlsx",
+        "csv",
+        "package",
+        "unknown"
+      ]
+    },
+    "deliverable_decision": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "selected_kind": {"type": ["string", "null"]},
+        "desired_kind": {"type": ["string", "null"]},
+        "feasible_kind": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]},
+        "source": {"type": ["string", "null"]},
+        "alternatives_considered": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "candidate_artifacts": {"type": "array"},
     "internal_artifacts": {"type": "array"},
     "validation_evidence": {"type": "array"},

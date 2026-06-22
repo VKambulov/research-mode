@@ -15,6 +15,19 @@ from .helpers import (
 )
 
 
+def _set_output_quality_checks(root: Path, task_id: str, checks: list[dict]) -> None:
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    contract = state.setdefault("working_memory", {}).setdefault(
+        "output_contract", {}
+    )
+    contract["quality_checks"] = checks
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_working_memory_mutation(root: Path) -> None:
     mutate_root = root / "mutate-root"
     mutate_root.mkdir(parents=True, exist_ok=True)
@@ -91,7 +104,17 @@ def test_work_order_input_layer(root: Path) -> None:
     assert_in("inferred_user_need", contract["required_trace_fields"], "contract should require inferred user need")
     assert_in("validation_evidence", contract["required_trace_fields"], "contract should require validation evidence")
     assert_eq(contract["requested_deliverable"], "итог в виде bullet list", "contract should carry requested deliverable")
-    assert_in("raw", contract["raw_artifact_signals"], "contract should expose raw artifact signals")
+    artifact_requirements = contract["candidate_artifact_requirements"]
+    assert_in(
+        "user_facing",
+        artifact_requirements["visibility"],
+        "contract should expose structured artifact visibility",
+    )
+    assert_eq(
+        artifact_requirements["primary_role"],
+        "primary",
+        "contract should expose structured primary artifact role",
+    )
     run("fail", "--root", str(wo_root), "--id", "wo-1", "--run-id", lease["run_id"], "--error", "cleanup")
 
 
@@ -104,14 +127,26 @@ def test_ru_local_guidance(root: Path) -> None:
             "--instruction", "Нужен список ресурсов и локальная выдача по региону")
     )
     assert_eq(ru_local["status"], "created", "ru-local task should be created")
+    state_path = ru_root / "ru-local-1" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("working_memory", {})["search_profile"] = {
+        "scope": "local",
+        "locale": "ru-RU",
+        "region_hint": "RU-ROS",
+        "discovery_mode": "serp_first",
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     lease = json_out(run("begin", "--root", str(ru_root), "--id", "ru-local-1"))
     assert_true(
-        any("regional or local search tools" in item.lower() for item in lease["execution_guidance"]),
-        "RU/local work order should bias toward regional/local discovery",
+        any("search_profile.scope=local" in item for item in lease["execution_guidance"]),
+        "explicit local search profile should bias toward local discovery",
     )
     assert_true(
-        any("synthesis-first" in item.lower() and "candidate resources" in item.lower() for item in lease["execution_guidance"]),
-        "RU/local work order should push synthesis-first search into secondary synthesis role",
+        any("serp_first" in item for item in lease["execution_guidance"]),
+        "explicit search profile should expose discovery mode",
     )
     assert_true(
         any("same language" in item.lower() for item in lease["execution_guidance"]),
@@ -203,6 +238,11 @@ def test_deliverable_bullet_validation(root: Path) -> None:
     db_root = root / "db-root"
     db_root.mkdir(parents=True, exist_ok=True)
     run("create", "--root", str(db_root), "--id", "db-bullets", "--goal", "Bullet deliverable validation", "--deliverable", "итог в виде bullet list")
+    _set_output_quality_checks(
+        db_root,
+        "db-bullets",
+        [{"kind": "bullet_list", "min_items": 2}],
+    )
     lease = json_out(run("begin", "--root", str(db_root), "--id", "db-bullets"))
     lease = route_to_finalize(db_root, "db-bullets", lease)
     result = Path(lease["paths"]["result_file"])
@@ -237,6 +277,11 @@ def test_deliverable_comparative_validation(root: Path) -> None:
     dc_root = root / "dc-root"
     dc_root.mkdir(parents=True, exist_ok=True)
     run("create", "--root", str(dc_root), "--id", "dc-compare", "--goal", "Comparative deliverable validation", "--deliverable", "сравнительная записка")
+    _set_output_quality_checks(
+        dc_root,
+        "dc-compare",
+        [{"kind": "comparative_matrix", "min_rows": 2, "min_columns": 2}],
+    )
     lease = json_out(run("begin", "--root", str(dc_root), "--id", "dc-compare"))
     lease = route_to_finalize(dc_root, "dc-compare", lease)
     result = Path(lease["paths"]["result_file"])
@@ -252,7 +297,7 @@ def test_deliverable_comparative_validation(root: Path) -> None:
             "findings": [{"kind": "fact", "text": "Подход A дешевле."}, {"kind": "fact", "text": "Подход B надёжнее."}],
             "notify_recommendation": "final",
             "should_complete": True,
-            "final_report_markdown": "# Сравнительная записка\n\n## Сравнение вариантов\n\n- Вариант A дешевле и проще внедряется.\n- Вариант B даёт более высокую надёжность.\n\n## Вывод\n\nСравнение показывает явный компромисс между стоимостью и устойчивостью.",
+            "final_report_markdown": "# Сравнительная записка\n\n## Сравнение вариантов\n\n| 方案 | 指标 |\n| --- | --- |\n| A | дешевле и проще внедряется |\n| B | даёт более высокую надёжность |\n\n## Вывод\n\nСравнение показывает явный компромисс между стоимостью и устойчивостью.",
             "finalization": human_ready_finalization(),
         }, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -261,7 +306,45 @@ def test_deliverable_comparative_validation(root: Path) -> None:
     assert_eq(finished["status"], "awaiting_review", "worker-initiated final should go to awaiting_review (then needs approve)")
     compare_summary = json_out(run("summary", "--root", str(dc_root), "--id", "dc-compare", "--format", "json"))
     compare_checks = ((compare_summary["completion"] or {}).get("deliverable_validation") or {}).get("checks") or []
-    assert_true(any(check.get("kind") == "comparative" and check.get("passed") for check in compare_checks), "comparative deliverable validation should be inspectable in summary json")
+    assert_true(any(check.get("kind") == "comparative_matrix" and check.get("passed") for check in compare_checks), "comparative deliverable validation should be inspectable in summary json")
+
+
+def test_deliverable_comparative_ranked_table_without_keyword(root: Path) -> None:
+    dt_root = root / "dt-root"
+    dt_root.mkdir(parents=True, exist_ok=True)
+    run("create", "--root", str(dt_root), "--id", "dt-compare-table", "--goal", "Comparative deliverable table validation", "--deliverable", "comparative memo")
+    _set_output_quality_checks(
+        dt_root,
+        "dt-compare-table",
+        [{"kind": "comparative_matrix", "min_rows": 2, "min_columns": 4}],
+    )
+    lease = json_out(run("begin", "--root", str(dt_root), "--id", "dt-compare-table"))
+    lease = route_to_finalize(dt_root, "dt-compare-table", lease)
+    result = Path(lease["paths"]["result_file"])
+    result.parent.mkdir(parents=True, exist_ok=True)
+    result.write_text(
+        json.dumps({
+            "summary": "Prepared a ranked decision table.",
+            "next_angle": "done",
+            "meaningful_progress": True,
+            "phase": "finalize",
+            "open_questions": [],
+            "sources": [{"title": "Source A", "url": "https://example.com/a"}, {"title": "Source B", "url": "https://example.com/b"}],
+            "findings": [{"kind": "fact", "text": "A has supply risk."}, {"kind": "fact", "text": "B has price risk."}],
+            "notify_recommendation": "final",
+            "should_complete": True,
+            "final_report_markdown": "# Recommendation\n\n| 甲 | 乙 | 丙 | 丁 |\n| --- | --- | --- | --- |\n| 1 | A | choose | supply |\n| 2 | B | backup | price |\n\n## Rationale\n\nThe table gives a structured comparison with four columns and two candidate rows.",
+            "finalization": human_ready_finalization(),
+        }, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    finished = json_out(run("finish", "--root", str(dt_root), "--id", "dt-compare-table", "--run-id", lease["run_id"], "--result-file", str(result)))
+    assert_eq(finished["status"], "awaiting_review", "ranked table should satisfy comparative deliverable without keyword dependency")
+    compare_summary = json_out(run("summary", "--root", str(dt_root), "--id", "dt-compare-table", "--format", "json"))
+    compare_checks = ((compare_summary["completion"] or {}).get("deliverable_validation") or {}).get("checks") or []
+    comparative_check = next(check for check in compare_checks if check.get("kind") == "comparative_matrix")
+    assert_true(comparative_check.get("passed"), "comparative table should pass structural validation")
+    assert_in("table_shape", comparative_check.get("structure_signals") or [], "summary should expose structural signal")
 
 
 def test_mutation_ambiguity(root: Path) -> None:

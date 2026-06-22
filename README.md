@@ -272,7 +272,11 @@ forgotten owner target.
 Research Mode itself emits a serializable `delivery_intent`. Platform-specific
 wrappers should send the pending intent through their messaging surface, include
 `primary_file` and `attachments` when supported, and then call
-`record-notification --status sent` or `--status failed`.
+`record-notification --status sent` or `--status failed`. When a provider rejects
+the target shape, wrappers can pass
+`--error-code delivery_channel_addressing_failed`; Research Mode records only a
+sanitized target shape, such as whether chat/thread/topic ids were present, not
+the private ids themselves.
 
 #### Research Adequacy Gate
 
@@ -480,6 +484,15 @@ For multi-file deliverables, use a finalization candidate with
 `README.md`, `index.md`, `final-report.md`, or an explicit `entrypoint`, and all
 files must resolve inside the task directory.
 
+Finalization records an optional `deliverable_decision` with the selected
+user-facing format, the desired kind, and the currently feasible kind. The
+desired kind comes only from structured fields such as
+`working_memory.output_contract.kind` or
+`finalization.primary_deliverable_kind`; free-text `--deliverable`, chat/thread
+context, titles, summaries, and notes do not choose the format. If
+`desired_kind` and `feasible_kind` differ, keep the task in finalization instead
+of marking delivery ready.
+
 #### Launch Mode 5: Scheduling Existing Tasks
 
 Use `schedule` when a task already exists and should receive recurring isolated
@@ -551,6 +564,11 @@ python3 scripts/research_mode.py queue-status --root <research-root>
 python3 scripts/research_mode.py draft-report --id <research-id> --format markdown
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
+
+`queue-status` also returns read-only findings when queue state disagrees with
+task state, such as a missing holder task, a holder/task lock mismatch, a stale
+waiter, or a terminal task still listed as waiting. Task-specific queue findings
+are included in `health`.
 
 For automated monitors, `summary --format json` includes
 `operator_attention.status`, `conditions`, and `recommended_actions`. Treat any
@@ -1027,6 +1045,14 @@ Research Mode намеренно разделяет ревью и доставк
 Это разделение не даёт непроверенному черновику, сырому артефакту рабочей
 области или заметке восстановления стать финальным пользовательским результатом.
 
+Для внешней отправки Research Mode создаёт сериализуемый `delivery_intent`.
+Адаптер канала отправляет текст и поддерживаемые файлы, затем вызывает
+`record-notification --status sent` или `--status failed`. Если провайдер
+отклоняет форму цели, адаптер может передать
+`--error-code delivery_channel_addressing_failed`; в состоянии сохраняется
+только безопасная форма цели, например наличие chat/thread/topic id, но не сами
+приватные id.
+
 #### Проверка достаточности исследования
 
 Перед финальной проверкой Research Mode выполняет gate достаточности
@@ -1287,6 +1313,11 @@ python3 scripts/research_mode.py draft-report --id <research-id> --format markdo
 python3 scripts/research_mode.py render-prompt --id <research-id>
 ```
 
+`queue-status` также возвращает read-only findings, если состояние очереди не
+сходится с состоянием задач: missing holder task, holder/task lock mismatch,
+stale waiter или terminal task, которая всё ещё числится waiting. Findings,
+относящиеся к конкретной задаче, попадают и в `health`.
+
 Для автоматических наблюдателей `summary --format json` содержит
 `operator_attention.status`, `conditions` и `recommended_actions`. Любой статус
 кроме `ok` нужно считать поводом уведомить оператора или выполнить
@@ -1407,6 +1438,15 @@ python3 scripts/research_mode.py mark-delivered \
 
 `awaiting_review` само по себе не означает готовность к доставке.
 `delivery.ready=true` появляется после утверждения или явной отметки доставки.
+
+Finalization записывает optional `deliverable_decision`: выбранный
+пользовательский формат, желаемый формат и фактически доступный формат.
+Желаемый формат берётся только из структурных полей, например
+`working_memory.output_contract.kind` или
+`finalization.primary_deliverable_kind`; свободный текст `--deliverable`,
+chat/thread контекст, заголовки, summaries и notes не выбирают формат. Если
+`desired_kind` и `feasible_kind` расходятся, задача остаётся в finalization и не
+помечается готовой к доставке.
 
 #### Связанное исследование
 

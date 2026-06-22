@@ -43,6 +43,7 @@ from research_mode_query_commands import (
     status_command,
     summary_command,
 )
+from research_mode_payloads import CANONICAL_DELIVERABLE_KINDS
 from research_mode_registry import (
     resolve_task_from_args,
 )
@@ -157,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seed the requested deliverable / output shape",
     )
     create.add_argument(
+        "--deliverable-kind",
+        default=None,
+        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        help="Set the structured desired deliverable kind",
+    )
+    create.add_argument(
         "--corpus-mode",
         default="web",
         choices=["web", "local", "hybrid"],
@@ -212,6 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--deliverable",
         default=None,
         help="Seed the requested deliverable / output shape",
+    )
+    start.add_argument(
+        "--deliverable-kind",
+        default=None,
+        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        help="Set the structured desired deliverable kind",
     )
     start.add_argument(
         "--corpus-mode",
@@ -285,6 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     record_notification.add_argument("--path")
     record_notification.add_argument("--delivery-intent-id", required=True)
     record_notification.add_argument("--status", required=True, choices=["sent", "failed"])
+    record_notification.add_argument("--error-code", default=None)
     record_notification.add_argument("--error", default=None)
     record_notification.set_defaults(func=record_notification_command)
 
@@ -606,6 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--set-deliverable", help="Set the requested deliverable / output shape"
     )
     mutate.add_argument(
+        "--deliverable-kind",
+        default=None,
+        choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+        help="Set the structured desired deliverable kind",
+    )
+    mutate.add_argument(
         "--clear-deliverable",
         action="store_true",
         help="Clear the requested deliverable",
@@ -644,7 +664,14 @@ def build_parser() -> argparse.ArgumentParser:
         )
         alias.add_argument("--id", help="Research id")
         alias.add_argument("--path", help="Task directory or state.json path")
-        alias.add_argument("text", help="Text to apply for this steering command")
+        alias.add_argument("text", nargs="?", help="Text to apply for this steering command")
+        if action_name == "set-deliverable":
+            alias.add_argument(
+                "--kind",
+                default=None,
+                choices=sorted(CANONICAL_DELIVERABLE_KINDS),
+                help="Set the structured desired deliverable kind",
+            )
         alias.set_defaults(func=steering_alias_command, action=action_name)
 
     list_cmd = subparsers.add_parser(

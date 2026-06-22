@@ -22,7 +22,7 @@ from research_mode_corpus import (
 )
 from research_mode_health import build_health_payload
 from research_mode_lifecycle_helpers import clear_reviewable_candidate
-from research_mode_payloads import normalize_string_list
+from research_mode_payloads import normalize_output_contract, normalize_string_list
 from research_mode_queue import release_global_queue
 from research_mode_reasons import reason_for_control_action, set_history_reason
 from research_mode_registry import resolve_task_from_args
@@ -485,6 +485,9 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
         )
         deliverable = working_memory.get("deliverable")
         deliverable = None if deliverable in (None, "") else str(deliverable).strip()
+        output_contract = normalize_output_contract(
+            working_memory.get("output_contract")
+        )
         contract = working_memory.get("contract")
 
         if getattr(args, "set_next_angle", None) is not None:
@@ -524,6 +527,8 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
             deliverable = value or None
         if getattr(args, "clear_deliverable", False):
             deliverable = None
+        if getattr(args, "deliverable_kind", None) is not None:
+            output_contract["kind"] = str(args.deliverable_kind).strip()
 
         if getattr(args, "clear_contract", False):
             contract = None
@@ -554,6 +559,7 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
         working_memory["open_questions"] = open_questions
         working_memory["constraints"] = constraints
         working_memory["deliverable"] = deliverable
+        working_memory["output_contract"] = output_contract
         working_memory["user_instructions"] = user_instructions
         working_memory["contract"] = contract
         state["updated_at"] = now
@@ -567,6 +573,7 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
             "open_questions": open_questions,
             "constraints": constraints,
             "deliverable": deliverable,
+            "output_contract": output_contract,
             "user_instructions": user_instructions,
             "contract": contract,
         }
@@ -577,6 +584,11 @@ def mutate_working_memory_command(args: argparse.Namespace) -> int:
 
 
 def steering_alias_command(args: argparse.Namespace) -> int:
+    text = getattr(args, "text", None)
+    if args.action != "set-deliverable" and text is None:
+        raise ValidationError(f"{args.action} requires text")
+    if args.action == "set-deliverable" and text is None and not getattr(args, "kind", None):
+        raise ValidationError("set-deliverable requires text or --kind")
     mutate_args = argparse.Namespace(
         root=args.root,
         id=args.id,
@@ -592,18 +604,22 @@ def steering_alias_command(args: argparse.Namespace) -> int:
         clear_constraints=False,
         set_deliverable=None,
         clear_deliverable=False,
+        deliverable_kind=None,
         add_instruction=None,
         remove_instruction=None,
         clear_instructions=False,
+        contract=None,
+        clear_contract=False,
     )
     if args.action == "add-angle":
-        mutate_args.append_angle = args.text
+        mutate_args.append_angle = text
     elif args.action == "add-instruction":
-        mutate_args.add_instruction = args.text
+        mutate_args.add_instruction = text
     elif args.action == "add-constraint":
-        mutate_args.add_constraint = args.text
+        mutate_args.add_constraint = text
     elif args.action == "set-deliverable":
-        mutate_args.set_deliverable = args.text
+        mutate_args.set_deliverable = text
+        mutate_args.deliverable_kind = getattr(args, "kind", None)
     else:
         raise ValidationError(f"Unsupported steering alias action: {args.action}")
     return mutate_working_memory_command(mutate_args)
@@ -1225,7 +1241,7 @@ def mark_delivered_command(args: argparse.Namespace) -> int:
     with manager.editor() as state:
         delivery = state.setdefault("delivery", {})
         if explicit_primary_file is not None:
-            delivery["primary_file"] = str(explicit_primary_file).strip()
+            delivery["primary_file"] = validated_primary
         if getattr(args, "summary_text", None) is not None:
             delivery["summary_text"] = str(args.summary_text).strip()
         if getattr(args, "channel_strategy", None) is not None:

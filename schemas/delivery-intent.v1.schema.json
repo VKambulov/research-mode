@@ -27,6 +27,17 @@
     "primary_file": {"type": ["string", "null"]},
     "attachments": {"type": "array", "items": {"type": "string"}},
     "blocked_reason": {"type": ["string", "null"]},
-    "error": {"type": ["string", "null"]}
+    "error": {"type": ["string", "null"]},
+    "error_code": {"type": ["string", "null"]},
+    "provider_target_shape": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "channel": {"type": ["string", "null"]},
+        "has_chat_id": {"type": "boolean"},
+        "has_thread_id": {"type": "boolean"},
+        "has_topic_id": {"type": "boolean"}
+      }
+    }
   }
 }

@@ -81,6 +81,22 @@ def normalize_task_state_defaults(state: dict[str, Any]) -> bool:
             queue[key] = value
             changed = True
 
+    reliability = ensure_mapping("reliability")
+    reliability_defaults = {
+        "schema_version": 1,
+        "failure_counters": {},
+        "last_events": [],
+    }
+    for key, value in reliability_defaults.items():
+        if key not in reliability:
+            if isinstance(value, dict):
+                reliability[key] = dict(value)
+            elif isinstance(value, list):
+                reliability[key] = list(value)
+            else:
+                reliability[key] = value
+            changed = True
+
     return changed
 
 
