@@ -148,8 +148,16 @@ def _candidate_artifact_exposure_reasons(
 def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
     working_memory = state.get("working_memory") or {}
     deliverable = working_memory.get("deliverable")
+    has_structured_outputs = bool(
+        (working_memory.get("output_contract") or {}).get("outputs")
+    )
+    opening_guidance = (
+        "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, map the reviewable files to working_memory.output_contract.outputs, inspect them as the recipient, fix blocking defects, and record the trace in result.finalization."
+        if has_structured_outputs
+        else "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, choose the recipient and primary deliverable kind, draft the deliverable, inspect it as the recipient, fix blocking defects, and record the trace in result.finalization."
+    )
     guidance = [
-        "Before setting should_complete=true, run a human-ready finalization loop: infer the user need, choose the recipient and primary deliverable kind, draft the deliverable, inspect it as the recipient, fix blocking defects, and record the trace in result.finalization.",
+        opening_guidance,
         "Synthesis notes, raw JSON/CSV/XLSX, SQLite dumps, iteration logs, and workspace files are internal artifacts until they are turned into a user-facing deliverable.",
         "List internal work in result.finalization.internal_artifacts; list only reviewable outputs in result.finalization.candidate_artifacts.",
         "For each candidate artifact, set id, path, role, visibility, and media_type when known. Use role='primary_deliverable' for the main reviewable output when output_contract.outputs is present; legacy single-kind tasks may still use role='primary'.",
@@ -160,8 +168,13 @@ def _build_finalization_guidance(state: dict[str, Any]) -> list[str]:
         "Directory/package outputs are still allowed when explicitly useful, but they are one possible container shape, not the default substitute for multiple reviewable outputs.",
     ]
     if deliverable:
+        hint_action = (
+            "Use it to shape the declared outputs"
+            if has_structured_outputs
+            else "Use it to choose the primary deliverable"
+        )
         guidance.append(
-            f"Requested deliverable hint: {deliverable}. Use it to choose the primary deliverable, but adapt the final shape to the real user need."
+            f"Requested deliverable hint: {deliverable}. {hint_action}, but adapt the final shape to the real user need."
         )
     return guidance
 
@@ -863,8 +876,11 @@ def validate_candidate_final(
         report_markdown = str(payload.get("final_report_markdown") or "")
     working_memory = state.get("working_memory") or {}
 
+    output_contract = working_memory.get("output_contract") or {}
     finalization_check = _check_finalization_trace(
-        payload.get("finalization"), report_markdown
+        payload.get("finalization"),
+        report_markdown,
+        output_contract=output_contract,
     )
     findings.append(finalization_check)
     if not finalization_check["passed"]:
@@ -875,7 +891,7 @@ def validate_candidate_final(
         final_report_path=task.final_report_path,
         finalization=payload.get("finalization"),
         report_markdown=report_markdown,
-        output_contract=working_memory.get("output_contract") or {},
+        output_contract=output_contract,
     )
     findings.append(artifact_check)
     if not artifact_check["passed"]:
@@ -994,6 +1010,8 @@ def validate_candidate_final(
 def _check_finalization_trace(
     finalization: dict[str, Any] | None,
     report_markdown: str,
+    *,
+    output_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[str] = []
     trace = finalization or {}
@@ -1013,6 +1031,7 @@ def _check_finalization_trace(
 
     candidate_artifacts = trace.get("candidate_artifacts") or []
     primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
+    has_structured_outputs = bool((output_contract or {}).get("outputs"))
     report_text = str(report_markdown or "").strip()
     if status == "passed" and not candidate_artifacts and not report_text:
         reasons.append("primary_deliverable_missing")
@@ -1030,7 +1049,7 @@ def _check_finalization_trace(
     if status == "passed":
         if not str(trace.get("inferred_user_need") or "").strip():
             reasons.append("user_facing_quality_weak")
-        if not primary_kind:
+        if not primary_kind and not has_structured_outputs:
             reasons.append("primary_deliverable_missing")
 
     return {

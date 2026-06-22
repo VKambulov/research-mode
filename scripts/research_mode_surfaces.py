@@ -210,6 +210,12 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
         primary_exists = _state_file_exists(state, primary_file)
         finalization = state.get("finalization") or {}
         candidate_artifacts = finalization.get("candidate_artifacts") or []
+        has_structured_outputs = bool(
+            ((state.get("working_memory") or {}).get("output_contract") or {}).get(
+                "outputs"
+            )
+            or delivery.get("outputs")
+        )
         if delivery.get("review_ready") and candidate_artifacts and not primary_file:
             warnings.append(
                 {
@@ -230,6 +236,7 @@ def compute_consistency_warnings(state: dict[str, Any]) -> dict[str, Any]:
             delivery.get("review_ready")
             and _has_candidate_artifact_inspection(state)
             and primary_file
+            and not has_structured_outputs
             and expected_formats
             and "package" not in expected_formats
         ):

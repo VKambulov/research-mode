@@ -179,6 +179,39 @@ def test_create_accepts_repeatable_output_specs(root) -> None:
     assert [item["id"] for item in outputs] == ["report", "sources"]
 
 
+def test_structured_output_guidance_does_not_require_legacy_kind(root) -> None:
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            "structured-guidance-no-legacy-kind",
+            "--goal",
+            "Prepare report and source workbook",
+            "--output",
+            "id=report,role=primary_deliverable,media_type=application/pdf",
+            "--output",
+            "id=sources,role=supporting_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+
+    lease = json_out(
+        run(
+            "begin",
+            "--root",
+            str(root),
+            "--id",
+            "structured-guidance-no-legacy-kind",
+        )
+    )
+    guidance = "\n".join(lease.get("finalization_guidance") or [])
+
+    assert "output_contract.outputs" in guidance
+    assert "primary deliverable kind" not in guidance
+
+
 def test_set_deliverable_accepts_output_spec(root) -> None:
     run("create", "--root", str(root), "--id", "set-output-cli", "--goal", "Prepare report")
 

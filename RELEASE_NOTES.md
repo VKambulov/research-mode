@@ -19,6 +19,9 @@ License: Apache License, Version 2.0.
 - Deprecated legacy single-output `--deliverable-kind`,
   `working_memory.output_contract.kind`, `primary_deliverable_kind`, and
   `deliverable_decision` for new tasks. They remain readable for old states.
+- Structured output finalization no longer requires
+  `finalization.primary_deliverable_kind`, and consistency checks no longer use
+  stale legacy format hints to flag valid `delivery.outputs` handoffs.
 - Added a minimal read-only reliability diagnostics foundation: optional
   `state.reliability` counters, summary/health/operator-attention surfacing,
   task-playbook visibility, and old-state compatibility tests.
@@ -264,6 +267,10 @@ Before publishing, confirm `LICENSE` is included in the public package.
   `working_memory.output_contract.kind`, `primary_deliverable_kind` и
   `deliverable_decision` помечены как deprecated для новых задач, но остаются
   читаемыми для старых states.
+- Structured output finalization больше не требует
+  `finalization.primary_deliverable_kind`, а consistency checks больше не
+  используют устаревшие legacy format hints для warning-ов на валидных
+  `delivery.outputs` handoff.
 - Добавлена минимальная read-only основа reliability diagnostics: optional
   counters в `state.reliability`, вывод в summary/health/operator-attention,
   видимость в task-playbook и проверки совместимости старых state.
