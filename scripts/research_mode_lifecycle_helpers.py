@@ -870,6 +870,7 @@ def validate_candidate_final(
         final_report_path=task.final_report_path,
         finalization=payload.get("finalization"),
         report_markdown=report_markdown,
+        output_contract=working_memory.get("output_contract") or {},
     )
     findings.append(artifact_check)
     if not artifact_check["passed"]:

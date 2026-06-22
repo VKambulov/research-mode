@@ -380,9 +380,18 @@ def inspect_candidate_artifacts(
     final_report_path: Path,
     finalization: dict[str, Any] | None,
     report_markdown: str,
+    output_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trace = finalization or {}
     candidate_artifacts = trace.get("candidate_artifacts") or []
+    expected_outputs = (output_contract or {}).get("outputs") or []
+    if expected_outputs:
+        return _inspect_output_contract_artifacts(
+            task_dir=task_dir,
+            candidate_artifacts=candidate_artifacts,
+            expected_outputs=expected_outputs,
+        )
+
     report_text = str(report_markdown or "").strip()
     primary_kind = str(trace.get("primary_deliverable_kind") or "").strip().lower()
 
@@ -509,6 +518,136 @@ def inspect_candidate_artifacts(
         "artifacts": checked,
         "mode": "candidate_artifacts",
     }
+
+
+def _inspect_output_contract_artifacts(
+    *,
+    task_dir: Path,
+    candidate_artifacts: list[dict[str, Any]],
+    expected_outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    checked: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    candidates_by_id: dict[str, dict[str, Any]] = {}
+    for artifact in candidate_artifacts:
+        artifact_id = str(artifact.get("id") or "").strip()
+        if not artifact_id:
+            reasons.append("candidate_artifact_id_missing")
+            checked.append({**artifact, "exists": False, "reasons": ["candidate_artifact_id_missing"]})
+            continue
+        if artifact_id not in candidates_by_id:
+            candidates_by_id[artifact_id] = artifact
+
+    for expected in expected_outputs:
+        output_id = str(expected.get("id") or "").strip()
+        if not output_id:
+            continue
+        candidate = candidates_by_id.get(output_id)
+        required = bool(expected.get("required", True))
+        if candidate is None:
+            if required:
+                reasons.append(f"required_output_missing:{output_id}")
+            continue
+
+        artifact_result = _inspect_declared_output_artifact(
+            task_dir=task_dir,
+            artifact=candidate,
+        )
+        checked.append(artifact_result)
+        reasons.extend(artifact_result.get("reasons") or [])
+
+        expected_role = str(expected.get("role") or "").strip()
+        candidate_role = str(candidate.get("role") or "").strip()
+        if expected_role and candidate_role != expected_role:
+            reasons.append(f"candidate_artifact_role_mismatch:{output_id}")
+
+        expected_media_type = str(expected.get("media_type") or "").strip()
+        candidate_media_type = str(candidate.get("media_type") or "").strip()
+        if expected_media_type:
+            if not candidate_media_type:
+                reasons.append(f"candidate_artifact_media_type_missing:{output_id}")
+            elif candidate_media_type != expected_media_type:
+                reasons.append(f"candidate_artifact_media_type_mismatch:{output_id}")
+
+    deduped_reasons = list(dict.fromkeys(reasons))
+    return {
+        "check": "candidate_artifact_inspection",
+        "passed": not deduped_reasons,
+        "reasons": deduped_reasons,
+        "artifacts": checked,
+        "mode": "output_contract",
+    }
+
+
+def _inspect_declared_output_artifact(
+    *,
+    task_dir: Path,
+    artifact: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_id = str(artifact.get("id") or "").strip()
+    artifact_path = str(artifact.get("path") or "").strip()
+    result = {
+        "id": artifact_id,
+        "path": artifact_path,
+        "role": str(artifact.get("role") or "").strip() or None,
+        "media_type": str(artifact.get("media_type") or "").strip() or None,
+    }
+    reasons: list[str] = []
+    if not artifact_path:
+        reasons.append("candidate_artifact_missing")
+        return {**result, "exists": False, "reasons": reasons}
+
+    try:
+        resolved = resolve_under_task(task_dir, artifact_path, label="candidate artifact")
+    except ValidationError:
+        return {
+            **result,
+            "exists": False,
+            "inside_task": False,
+            "reasons": ["candidate_artifact_outside_task"],
+        }
+
+    if not resolved.exists():
+        reasons.append("candidate_artifact_missing")
+        return {
+            **result,
+            "exists": False,
+            "inside_task": True,
+            "reasons": reasons,
+        }
+
+    artifact_result: dict[str, Any] = {
+        **result,
+        "exists": True,
+        "inside_task": True,
+        "is_file": resolved.is_file(),
+        "is_directory": resolved.is_dir(),
+        "size_bytes": None,
+    }
+    if resolved.is_file():
+        try:
+            size_bytes = resolved.stat().st_size
+            with resolved.open("rb") as handle:
+                handle.read(1)
+        except OSError:
+            reasons.append("candidate_artifact_unreadable")
+            size_bytes = None
+        artifact_result["size_bytes"] = size_bytes
+        if size_bytes == 0:
+            reasons.append("candidate_artifact_empty")
+    elif resolved.is_dir():
+        try:
+            has_child = any(resolved.iterdir())
+        except OSError:
+            reasons.append("candidate_artifact_unreadable")
+        else:
+            if not has_child:
+                reasons.append("candidate_artifact_empty")
+    else:
+        reasons.append("candidate_artifact_not_file")
+
+    artifact_result["reasons"] = list(dict.fromkeys(reasons))
+    return artifact_result
 
 
 def _inspect_package_candidate(

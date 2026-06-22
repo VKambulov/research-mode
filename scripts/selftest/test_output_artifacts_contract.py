@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from research_mode_finalization import inspect_candidate_artifacts
 from research_mode_payloads import normalize_output_contract
 from research_mode_utils import ValidationError
 
@@ -161,3 +164,119 @@ def test_set_deliverable_accepts_output_spec(root) -> None:
     )
 
     assert updated["working_memory"]["output_contract"]["outputs"][0]["id"] == "report"
+
+
+def test_candidate_artifacts_satisfy_required_outputs(tmp_path: Path) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+    (output_dir / "sources.xlsx").write_bytes(
+        b"source,url\nexample,https://example.com\n"
+    )
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                },
+                {
+                    "id": "sources",
+                    "path": "workspace/outputs/sources.xlsx",
+                    "role": "supporting_deliverable",
+                    "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                },
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                },
+                {
+                    "id": "sources",
+                    "role": "supporting_deliverable",
+                    "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                },
+            ]
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["reasons"] == []
+
+
+def test_candidate_artifacts_do_not_use_extension_mapping(tmp_path: Path) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.custom").write_bytes(b"readable")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report",
+                    "path": "workspace/outputs/report.custom",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                }
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                }
+            ]
+        },
+    )
+
+    assert result["passed"] is True
+
+
+def test_candidate_artifact_missing_declared_media_type_fails(tmp_path: Path) -> None:
+    task_dir = tmp_path / "task"
+    output_dir = task_dir / "workspace" / "outputs"
+    output_dir.mkdir(parents=True)
+    (output_dir / "report.pdf").write_bytes(b"%PDF-1.7\n")
+
+    result = inspect_candidate_artifacts(
+        task_dir=task_dir,
+        final_report_path=task_dir / "final-report.md",
+        report_markdown="",
+        finalization={
+            "candidate_artifacts": [
+                {
+                    "id": "report",
+                    "path": "workspace/outputs/report.pdf",
+                    "role": "primary_deliverable",
+                }
+            ]
+        },
+        output_contract={
+            "outputs": [
+                {
+                    "id": "report",
+                    "role": "primary_deliverable",
+                    "media_type": "application/pdf",
+                }
+            ]
+        },
+    )
+
+    assert "candidate_artifact_media_type_missing:report" in result["reasons"]
