@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from research_mode_finalization import inspect_candidate_artifacts
 from research_mode_payloads import normalize_output_contract
 from research_mode_utils import ValidationError
 
 from .helpers import json_out, run
+
+
+def _assert_validation_error(fn, expected: str) -> None:
+    try:
+        fn()
+    except ValidationError as exc:
+        assert expected in str(exc)
+    else:
+        raise AssertionError("expected ValidationError")
 
 
 def test_output_contract_accepts_open_media_type() -> None:
@@ -58,26 +65,26 @@ def test_output_contract_supports_multiple_required_outputs() -> None:
 
 
 def test_output_contract_rejects_unsafe_output_id() -> None:
-    with pytest.raises(ValidationError, match="output id"):
-        normalize_output_contract(
-            {
-                "outputs": [
-                    {"id": "../report", "role": "primary_deliverable"},
-                ]
-            }
-        )
+    _assert_validation_error(
+        lambda: normalize_output_contract(
+            {"outputs": [{"id": "../report", "role": "primary_deliverable"}]}
+        ),
+        "output id",
+    )
 
 
 def test_output_contract_rejects_duplicate_output_ids() -> None:
-    with pytest.raises(ValidationError, match="duplicate output id"):
-        normalize_output_contract(
+    _assert_validation_error(
+        lambda: normalize_output_contract(
             {
                 "outputs": [
                     {"id": "report", "role": "primary_deliverable"},
                     {"id": "report", "role": "supporting_deliverable"},
                 ]
             }
-        )
+        ),
+        "duplicate output id",
+    )
 
 
 def test_output_contract_parses_required_false() -> None:
@@ -98,15 +105,17 @@ def test_output_contract_parses_required_false() -> None:
 
 
 def test_output_contract_rejects_multiple_primary_outputs() -> None:
-    with pytest.raises(ValidationError, match="exactly one primary_deliverable"):
-        normalize_output_contract(
+    _assert_validation_error(
+        lambda: normalize_output_contract(
             {
                 "outputs": [
                     {"id": "report", "role": "primary_deliverable"},
                     {"id": "appendix", "role": "primary_deliverable"},
                 ]
             }
-        )
+        ),
+        "exactly one primary_deliverable",
+    )
 
 
 def test_output_contract_keeps_legacy_kind_but_prefers_outputs() -> None:

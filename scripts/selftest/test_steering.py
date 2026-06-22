@@ -98,7 +98,8 @@ def test_work_order_input_layer(root: Path) -> None:
     assert_true(any("requested deliverable" in item for item in lease["execution_guidance"]), "guidance should mention deliverable")
     assert_true(any("raw" in item.lower() for item in lease["finalization_guidance"]), "finalization guidance should warn against raw artifacts as final")
     assert_true(any("finalization" in item.lower() for item in lease["finalization_guidance"]), "finalization guidance should mention the required trace")
-    assert_true(any("final_package" in item for item in lease["finalization_guidance"]), "finalization guidance should explain package deliverable candidates")
+    assert_true(any("output_contract.outputs" in item for item in lease["finalization_guidance"]), "finalization guidance should explain structured outputs")
+    assert_true(any("source_for" in item for item in lease["finalization_guidance"]), "finalization guidance should explain provenance relations")
     contract = lease["finalization_contract"]
     assert_eq(contract["required_status"], "passed", "finalization contract should require passed status")
     assert_in("inferred_user_need", contract["required_trace_fields"], "contract should require inferred user need")
