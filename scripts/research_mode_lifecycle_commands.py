@@ -73,6 +73,7 @@ from research_mode_utils import (
     parse_ts,
     read_json,
     resolve_under_task,
+    scheduled_worker_timeout_seconds,
     utc_now,
 )
 
@@ -609,6 +610,7 @@ def begin_iteration(args: argparse.Namespace) -> int:
         run_id = uuid.uuid4().hex[:12]
         lease_token = uuid.uuid4().hex
         stale_timeout_min = int(state["lock"].get("stale_timeout_min") or 30)
+        worker_timeout_seconds = scheduled_worker_timeout_seconds(state)
         queue_result = acquire_global_queue(
             task.task_dir.parent,
             task_id=state["id"],
@@ -663,6 +665,7 @@ def begin_iteration(args: argparse.Namespace) -> int:
                 "lease_token": lease_token,
                 "started_at": now,
                 "iteration_index": iteration_index,
+                "worker_timeout_seconds": worker_timeout_seconds,
             }
         )
         state["history"]["last_transition"] = "begin"

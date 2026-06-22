@@ -681,6 +681,78 @@ def test_begin_recovers_after_scheduled_worker_timeout_before_lock_timeout(
     )
 
 
+def test_lock_uses_worker_timeout_from_begin_not_later_schedule_change(
+    root: Path,
+) -> None:
+    task_id = "task-worker-timeout-frozen"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Self-test frozen worker timeout",
+            "--title",
+            "Worker Timeout Frozen",
+            "--stale-timeout-min",
+            "30",
+            "--skip-preflight",
+        )
+    )
+    state_path = root / task_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["job"]["schedule_template"] = {"timeout_seconds": 900}
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    old_started_at = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=17)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    state["lock"]["started_at"] = old_started_at
+    state["job"]["schedule_template"] = {"timeout_seconds": 1800}
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    status = json_out(
+        run("status", "--root", str(root), "--id", task_id, "--format", "json")
+    )
+    assert_eq(
+        status["lock"]["worker_timeout_seconds"],
+        900,
+        "status should report the timeout captured when the lock was leased",
+    )
+    assert_eq(
+        status["lock"]["effective_stale_timeout_min"],
+        16,
+        "later schedule timeout changes must not extend an already running worker lock",
+    )
+    assert_true(
+        status["lock"]["is_stale"],
+        "lock should remain stale after the old cron run timed out",
+    )
+
+    recovered = json_out(run("begin", "--root", str(root), "--id", task_id))
+    assert_eq(
+        recovered["status"],
+        "leased",
+        "begin should recover the worker that timed out under its original timeout",
+    )
+    state_after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert_eq(
+        state_after["lock"]["last_recovered_from_run"],
+        lease["run_id"],
+        "recovery should abandon the original timed-out run",
+    )
+
+
 def test_abandoned_run_without_result(root: Path) -> None:
     json_out(
         run("create", "--root", str(root), "--id", "task-abandoned", "--goal", "Self-test abandoned run without result file", "--title", "Task Abandoned", "--stale-timeout-min", "1")
@@ -780,6 +852,12 @@ def test_schedule_and_runtime(root: Path) -> None:
     assert_eq(dry["status"], "dry-run", "schedule dry-run status")
     assert_true(dry["command"][:3] == ["openclaw", "cron", "add"], "schedule should build cron add command")
     assert_in("--no-deliver", dry["command"], "schedule should keep cron delivery internal by default")
+    timeout_index = dry["command"].index("--timeout-seconds") + 1
+    assert_eq(
+        dry["command"][timeout_index],
+        "1800",
+        "scheduled worker default timeout should allow heavy finalize/rework iterations",
+    )
     assert_true(
         any(
             warning.get("code") == "timeout_exceeds_interval"

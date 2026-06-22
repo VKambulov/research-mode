@@ -835,7 +835,9 @@ def should_notify(
     policy = payload["notify_recommendation"]
     if policy == "silent":
         return False
-    if policy in {"blocker", "final", "milestone"}:
+    if policy == "final":
+        return next_status in {"awaiting_review", "complete"}
+    if policy in {"blocker", "milestone"}:
         return True
     if next_status in {"complete", "failed", "cancelled"}:
         return True

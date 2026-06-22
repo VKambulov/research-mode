@@ -61,6 +61,7 @@ from research_mode_utils import (
 )
 
 SCRIPT_PATH = Path(__file__).resolve()
+DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
 SKILL_DIR = SCRIPT_PATH.parent.parent
 WORKSPACE_ROOT = SKILL_DIR.parent.parent
 DEFAULT_RESEARCH_ROOT = WORKSPACE_ROOT / "research"
@@ -258,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the default preflight phase (not recommended; records a visible warning)",
     )
     start.add_argument("--every", default="5m")
-    start.add_argument("--timeout-seconds", type=int, default=900)
+    start.add_argument("--timeout-seconds", type=int, default=DEFAULT_WORKER_TIMEOUT_SECONDS)
     start.add_argument("--thinking", default="high")
     start.add_argument("--agent", default=None)
     start.add_argument("--model", default=None)
@@ -830,7 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--id")
     schedule.add_argument("--path")
     schedule.add_argument("--every", default="5m")
-    schedule.add_argument("--timeout-seconds", type=int, default=900)
+    schedule.add_argument("--timeout-seconds", type=int, default=DEFAULT_WORKER_TIMEOUT_SECONDS)
     schedule.add_argument("--thinking", default="high")
     schedule.add_argument("--agent", default=None)
     schedule.add_argument("--model", default=None)

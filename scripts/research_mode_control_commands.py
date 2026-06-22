@@ -54,6 +54,7 @@ from research_mode_utils import (
 DEFAULT_FINAL_STATUSES = {"complete", "failed", "cancelled"}
 REVIEW_WAIT_STATUSES = {"awaiting_review"}
 SCRIPT_PATH = Path(__file__).resolve().with_name("research_mode.py")
+DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
 
 
 def _merge_output_specs(
@@ -233,7 +234,9 @@ def _build_schedule_args(
         id=state.get("id"),
         path=str(task.task_dir),
         every=str(every),
-        timeout_seconds=int(template.get("timeout_seconds") or 900),
+        timeout_seconds=int(
+            template.get("timeout_seconds") or DEFAULT_WORKER_TIMEOUT_SECONDS
+        ),
         thinking=str(template.get("thinking") or "high"),
         agent=template.get("agent"),
         model=template.get("model"),
