@@ -1193,6 +1193,76 @@ def test_worker_final_xlsx_output_does_not_require_legacy_kind_or_long_wrapper(r
     )
 
 
+def test_approve_defaults_to_delivery_primary_file_for_structured_outputs(root: Path) -> None:
+    task_id = "structured-output-approve-primary"
+    json_out(
+        run(
+            "create",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--goal",
+            "Prepare a formatted Excel company profile.",
+            "--output",
+            "id=company_workbook,role=primary_deliverable,media_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "--skip-preflight",
+        )
+    )
+    task_dir = root / task_id
+    workbook_path = task_dir / "workspace" / "outputs" / "company-profile.xlsx"
+    _write_minimal_xlsx(workbook_path)
+
+    lease = json_out(run("begin", "--root", str(root), "--id", task_id))
+    finalization = {
+        **_HUMAN_READY_FINALIZATION,
+        "candidate_artifacts": [
+            {
+                "id": "company_workbook",
+                "path": "workspace/outputs/company-profile.xlsx",
+                "role": "primary_deliverable",
+                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "visibility": "user_facing",
+            }
+        ],
+    }
+    payload = _final_payload(finalization)
+    payload["final_report_markdown"] = (
+        "# Workbook wrapper\n\n"
+        "The XLSX file is the reviewable deliverable; this markdown is only handoff context."
+    )
+    finished = _finish_with_payload(root, task_id, lease, payload)
+    assert_eq(
+        finished.get("status"),
+        "awaiting_review",
+        "structured workbook task should wait for review",
+    )
+
+    approved = json_out(
+        run(
+            "approve",
+            "--root",
+            str(root),
+            "--id",
+            task_id,
+            "--feedback",
+            "Workbook approved.",
+        )
+    )
+
+    assert_eq(
+        approved.get("approved_artifact_path"),
+        str(workbook_path),
+        "approve should default to delivery.primary_file for structured outputs",
+    )
+    state = json.loads((task_dir / "state.json").read_text(encoding="utf-8"))
+    assert_eq(
+        state.get("review", {}).get("approved_artifact_path"),
+        str(workbook_path),
+        "review state should record the actual workbook as approved artifact",
+    )
+
+
 def test_delivery_ready_missing_primary_file_sets_operator_attention(root: Path) -> None:
     task_id = "delivery-ready-missing-primary"
     json_out(

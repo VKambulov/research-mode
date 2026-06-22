@@ -1039,9 +1039,11 @@ def approve_command(args: argparse.Namespace) -> int:
             f"got status: {state.get('status')}"
         )
 
-    approved_artifact = getattr(args, "approved_artifact", None) or state.get(
-        "artifacts", {}
-    ).get("final_report_path")
+    approved_artifact = (
+        getattr(args, "approved_artifact", None)
+        or state.get("delivery", {}).get("primary_file")
+        or state.get("artifacts", {}).get("final_report_path")
+    )
     approved_artifact = _validate_artifact_path(
         approved_artifact, task, "reviewable artifact"
     )
