@@ -8,7 +8,10 @@ License: Apache License, Version 2.0.
 
 ### Unreleased
 
-- No changes yet.
+- Restructured the public documentation entry path: `README.md` is now a
+  shorter first-entry document, while `docs/USER_GUIDE.md`,
+  `docs/OPERATIONS.md`, and `docs/OUTPUTS.md` hold user, operator, and output
+  contract details.
 
 ### v0.5.0 - 2026-06-22
 
@@ -258,7 +261,9 @@ Before publishing, confirm `LICENSE` is included in the public package.
 
 ### Unreleased
 
-- Пока нет изменений.
+- Перестроен публичный вход в документацию: `README.md` теперь короче и проще,
+  а подробности для пользователей, операторов и контрактов результата вынесены в
+  `docs/USER_GUIDE.md`, `docs/OPERATIONS.md` и `docs/OUTPUTS.md`.
 
 ### v0.5.0 - 2026-06-22
 

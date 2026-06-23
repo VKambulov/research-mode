@@ -33,8 +33,6 @@ Include in the public package:
 
 - `SKILL.md`
 - `README.md`
-- `TROUBLESHOOTING.md`
-- `ARCHITECTURE.md`
 - `RELEASING.md`
 - `RELEASE_NOTES.md`
 - `LICENSE`
@@ -120,11 +118,14 @@ Before asking someone else to try the package:
 - [ ] README clearly says this is an OpenClaw cron-based skill.
 - [ ] README explains installation through a repository clone inside the OpenClaw skills directory.
 - [ ] README links to Apache License, Version 2.0 via `LICENSE`.
-- [ ] README explains chat-first usage, launch parameters, review, common work patterns, launch modes, CLI command families, task states, scheduling, delivery, and quality gates.
+- [ ] README stays a short first-entry document and links to deeper guides.
+- [ ] `docs/USER_GUIDE.md` explains chat-first usage, launch parameters, request examples, review, and follow-up research.
+- [ ] `docs/OPERATIONS.md` explains operator commands, scheduling, recovery, review/delivery, and quality gates.
+- [ ] `docs/OUTPUTS.md` explains `output_contract.outputs[]`, candidate artifacts, `delivery.outputs[]`, provenance links, and legacy compatibility fields.
+- [ ] `docs/TROUBLESHOOTING.md` explains diagnosis order, common failure modes, and safe repair paths.
+- [ ] `docs/TROUBLESHOOTING.md` covers preflight `needs_setup` / `blocked` states.
+- [ ] `docs/ARCHITECTURE.md` explains the system with diagrams and calibrated comparisons.
 - [ ] README mentions that GitHub Actions runs the release gate and Bandit security smoke scan.
-- [ ] `TROUBLESHOOTING.md` explains diagnosis order, common failure modes, and safe repair paths.
-- [ ] `TROUBLESHOOTING.md` covers preflight `needs_setup` / `blocked` states.
-- [ ] `ARCHITECTURE.md` explains the system with diagrams and calibrated comparisons.
 - [ ] `RELEASING.md` explains the OpenClaw skill package boundary.
 - [ ] `SECURITY.md` explains task artifact, package, and untrusted-input safety.
 - [ ] `AGENTS.md` keeps coding-agent maintenance notes separate from human-facing docs.
@@ -172,8 +173,6 @@ Python-пакет, не самостоятельный демон, не разм
 
 - `SKILL.md`
 - `README.md`
-- `TROUBLESHOOTING.md`
-- `ARCHITECTURE.md`
 - `RELEASING.md`
 - `RELEASE_NOTES.md`
 - `LICENSE`
@@ -258,10 +257,13 @@ repository лицензирован под Apache License, Version 2.0.
 - [ ] README прямо говорит, что это OpenClaw skill, работающий через cron.
 - [ ] README объясняет установку через clone репозитория прямо внутри директории skills OpenClaw.
 - [ ] README ссылается на Apache License, Version 2.0 через `LICENSE`.
-- [ ] README объясняет использование из чата, параметры запуска, ревью, частые рабочие сценарии, варианты запуска, семейства CLI-команд, состояния задач, расписание, доставку и проверки качества.
-- [ ] `TROUBLESHOOTING.md` объясняет порядок диагностики, частые сбои и безопасные способы исправления.
-- [ ] `TROUBLESHOOTING.md` покрывает состояния preflight `needs_setup` / `blocked`.
-- [ ] `ARCHITECTURE.md` объясняет систему через схемы и аккуратные сравнения.
+- [ ] README остаётся коротким входным документом и ведёт к подробным руководствам.
+- [ ] `docs/USER_GUIDE.md` объясняет использование из чата, параметры запроса, примеры, ревью и связанные исследования.
+- [ ] `docs/OPERATIONS.md` объясняет операторские команды, расписание, восстановление, ревью/доставку и проверки качества.
+- [ ] `docs/OUTPUTS.md` объясняет `output_contract.outputs[]`, артефакты-кандидаты, `delivery.outputs[]`, связи происхождения и совместимость со старыми полями.
+- [ ] `docs/TROUBLESHOOTING.md` объясняет порядок диагностики, частые сбои и безопасные способы исправления.
+- [ ] `docs/TROUBLESHOOTING.md` покрывает состояния preflight `needs_setup` / `blocked`.
+- [ ] `docs/ARCHITECTURE.md` объясняет систему через схемы и аккуратные сравнения.
 - [ ] `RELEASING.md` объясняет состав пакета OpenClaw skill.
 - [ ] `SECURITY.md` объясняет безопасность артефактов задач, пакетов и недоверенных входных данных.
 - [ ] `AGENTS.md` держит заметки для агентов-разработчиков отдельно от пользовательской документации.
