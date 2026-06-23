@@ -38,8 +38,8 @@ If your checkout does not preserve executable bits, run the full gate through
 
 These surfaces should be changed carefully and documented:
 
-- user and operator documentation in `README.md`, `TROUBLESHOOTING.md`,
-  `ARCHITECTURE.md`, `SECURITY.md`, `RELEASING.md`, and `ROADMAP.md`;
+- user and operator documentation in `README.md`, `docs/`,
+  `SECURITY.md`, `RELEASING.md`, and `ROADMAP.md`;
 - helper commands exposed by `scripts/research_mode.py`;
 - task-local files such as `state.json`, `sources.jsonl`, `findings.jsonl`,
   `runs.tsv`, `task-playbook.md`, result payloads, and delivery intents;
@@ -112,9 +112,8 @@ uvx --from bandit bandit -q -r scripts -x scripts/selftest
 
 Эти поверхности нужно менять аккуратно и документировать:
 
-- пользовательская и операторская документация: `README.md`,
-  `TROUBLESHOOTING.md`, `ARCHITECTURE.md`, `SECURITY.md`, `RELEASING.md`,
-  `ROADMAP.md`;
+- пользовательская и операторская документация: `README.md`, `docs/`,
+  `SECURITY.md`, `RELEASING.md`, `ROADMAP.md`;
 - helper-команды из `scripts/research_mode.py`;
 - task-local файлы: `state.json`, `sources.jsonl`, `findings.jsonl`,
   `runs.tsv`, `task-playbook.md`, result payloads и delivery intents;

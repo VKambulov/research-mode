@@ -1,8 +1,10 @@
 # Agent Notes
 
 This file is for coding agents and maintainers working on this repository.
-Human-facing project documentation lives in `README.md`, `TROUBLESHOOTING.md`,
-`ARCHITECTURE.md`, `RELEASE_NOTES.md`, `RELEASING.md`, and `SECURITY.md`.
+Human-facing project documentation starts at `README.md`. Detailed guides live
+under `docs/`, with repository-level files such as `RELEASE_NOTES.md`,
+`RELEASING.md`, `CONTRIBUTING.md`, `ROADMAP.md`, and `SECURITY.md` kept at the
+root.
 
 ## Keep The Boundary Clear
 

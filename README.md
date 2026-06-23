@@ -162,8 +162,8 @@ compatibility mirrors for older integrations.
   and provenance links.
 - `docs/CLI.md` — command reference for operators and maintainers.
 - `docs/STATE_VERSIONING.md` — state compatibility and migration policy.
-- `ARCHITECTURE.md` — system model and design decisions.
-- `TROUBLESHOOTING.md` — diagnosis order and safe repair paths.
+- `docs/ARCHITECTURE.md` — system model and design decisions.
+- `docs/TROUBLESHOOTING.md` — diagnosis order and safe repair paths.
 - `examples/README.md` — public example packages and sanitized traces.
 - `ROADMAP.md`, `CONTRIBUTING.md`, `SECURITY.md`, `RELEASING.md`,
   `RELEASE_NOTES.md` — project status, contribution, safety, and release
@@ -341,8 +341,8 @@ python3 scripts/research_mode.py approve --id <research-id>
   связи происхождения.
 - `docs/CLI.md` — справочник команд для операторов и сопровождающих.
 - `docs/STATE_VERSIONING.md` — совместимость состояния и политика миграций.
-- `ARCHITECTURE.md` — модель системы и архитектурные решения.
-- `TROUBLESHOOTING.md` — порядок диагностики и безопасные способы ремонта.
+- `docs/ARCHITECTURE.md` — модель системы и архитектурные решения.
+- `docs/TROUBLESHOOTING.md` — порядок диагностики и безопасные способы ремонта.
 - `examples/README.md` — публичные примеры и очищенные трассы исследований.
 - `ROADMAP.md`, `CONTRIBUTING.md`, `SECURITY.md`, `RELEASING.md`,
   `RELEASE_NOTES.md` — статус проекта, вклад, безопасность и релизы.
